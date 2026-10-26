@@ -1,0 +1,7 @@
+{
+  "name": "Mama-G: Maternal & Women's Health AI Assistant",
+  "description": "Empathetic, culturally sensitive digital health assistant for maternal care, symptom triage, SRHR, and Community Health Workers in low-resource environments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

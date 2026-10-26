@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "userProfile": {
+      "title": "UserProfile",
+      "description": "User account profile and pregnancy preferences",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Unique identifier of the user",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "User display name"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["mother", "postpartum", "adolescent", "chw"],
+          "description": "User role"
+        },
+        "preferredLanguage": {
+          "type": "string",
+          "enum": ["English", "Nigerian Pidgin", "Swahili", "French", "Hausa", "Yoruba"],
+          "description": "Preferred UI and assistant language"
+        },
+        "gestationWeeks": {
+          "type": "number",
+          "description": "Current gestation weeks (1-42)"
+        },
+        "lastPeriodDate": {
+          "type": "string",
+          "description": "Start date of last menstrual period (YYYY-MM-DD)"
+        },
+        "cycleLength": {
+          "type": "number",
+          "description": "Average menstrual cycle length in days (20-45)"
+        },
+        "periodDuration": {
+          "type": "number",
+          "description": "Average bleeding duration in days (2-12)"
+        },
+        "cycleAlertEnabled": {
+          "type": "boolean",
+          "description": "Whether user enabled period arrival reminders"
+        },
+        "cycleNotes": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Personal cycle and symptom notes"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Profile creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Profile update timestamp"
+        }
+      },
+      "required": ["userId", "email", "role", "createdAt"]
+    },
+    "consultationNote": {
+      "title": "ConsultationNote",
+      "description": "Saved maternal consultation, checklist, or triage note",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique note ID"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Owner user ID"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Title or symptom topic"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 5000,
+          "description": "Consultation guidance or triage note"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["ROUTINE", "URGENT", "EMERGENCY"],
+          "description": "Clinical triage severity"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Record creation timestamp"
+        }
+      },
+      "required": ["id", "userId", "title", "content", "severity", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/userProfile"
+      },
+      "description": "User account document containing profile information"
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": {
+        "$ref": "#/entities/consultationNote"
+      },
+      "description": "Private maternal notes and triage records saved by the user"
+    }
+  }
+}
