@@ -51,6 +51,22 @@ service cloud.firestore {
         && data.createdAt == request.time;
     }
 
+    function isValidGameScore(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'score', 'mothersHelped', 'kitsDelivered', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'score', 'mothersHelped', 'kitsDelivered', 'distance', 'createdAt'])
+        && data.userId == request.auth.uid
+        && data.userId == userId
+        && data.id is string
+        && data.id.matches('^[a-zA-Z0-9_-]+$')
+        && data.id.size() <= 128
+        && data.score is number && data.score >= 0
+        && data.mothersHelped is number && data.mothersHelped >= 0
+        && data.kitsDelivered is number && data.kitsDelivered >= 0
+        && (!('distance' in data) || (data.distance is number && data.distance >= 0))
+        && data.createdAt is timestamp
+        && data.createdAt == request.time;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId) && isValidId(userId);
       allow list: if false;
@@ -75,6 +91,18 @@ service cloud.firestore {
                       && isValidNote(request.resource.data, userId);
         allow update: if false;
         allow delete: if isOwner(userId) && isValidId(userId) && isValidId(noteId);
+      }
+
+      match /gameScores/{scoreId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(scoreId);
+        allow list: if isOwner(userId) && isValidId(userId);
+        allow create: if isOwner(userId)
+                      && isValidId(userId)
+                      && isValidId(scoreId)
+                      && request.resource.data.id == scoreId
+                      && isValidGameScore(request.resource.data, userId);
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(scoreId);
       }
     }
   }

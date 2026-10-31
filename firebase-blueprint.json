@@ -105,6 +105,45 @@
         }
       },
       "required": ["id", "userId", "title", "content", "severity", "createdAt"]
+    },
+    "gameScore": {
+      "title": "GameScore",
+      "description": "User high scores and achievements in Midwife Odyssey 3D game",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique score ID"
+        },
+        "userId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Owner user ID"
+        },
+        "score": {
+          "type": "number",
+          "description": "Total rescue points scored"
+        },
+        "mothersHelped": {
+          "type": "number",
+          "description": "Total mothers helped"
+        },
+        "kitsDelivered": {
+          "type": "number",
+          "description": "Total medical kits safely delivered"
+        },
+        "distance": {
+          "type": "number",
+          "description": "Distance traveled in meters"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Score record timestamp"
+        }
+      },
+      "required": ["id", "userId", "score", "mothersHelped", "kitsDelivered", "createdAt"]
     }
   },
   "firestore": {
@@ -119,6 +158,12 @@
         "$ref": "#/entities/consultationNote"
       },
       "description": "Private maternal notes and triage records saved by the user"
+    },
+    "/users/{userId}/gameScores/{scoreId}": {
+      "schema": {
+        "$ref": "#/entities/gameScore"
+      },
+      "description": "Private game high score entries for the player"
     }
   }
 }

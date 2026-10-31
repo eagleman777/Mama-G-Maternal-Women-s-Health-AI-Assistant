@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wifi, WifiOff, Download, CheckCircle, RefreshCw, X } from 'lucide-react';
+import { Wifi, WifiOff, Download, CheckCircle, RefreshCw, X, Smartphone, Laptop } from 'lucide-react';
 import { usePwa } from '../context/PwaContext';
 import { SupportedLanguage } from '../types';
 import { UI_TRANSLATIONS } from '../data/translations';
@@ -15,7 +15,9 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ language }) 
     toggleSimulatedOffline,
     isInstallable,
     isInstalled,
+    isDesktop,
     installApp,
+    openInstallModal,
     offlineReady,
     needRefresh,
     updateApp,
@@ -63,19 +65,30 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({ language }) 
         </div>
       )}
 
-      {/* In-app install banner if installable and not in standalone */}
-      {isInstallable && !isInstalled && (
-        <div className="bg-gradient-to-r from-amber-700 to-rose-700 text-white px-4 py-2 text-xs font-medium flex items-center justify-between gap-3 shadow-sm z-40">
-          <div className="flex items-center gap-2">
-            <Download className="w-4 h-4 shrink-0 text-amber-200" />
-            <span className="truncate">{t.installAppBanner}</span>
+      {/* In-app install banner if not in standalone */}
+      {!isInstalled && (
+        <div className="bg-gradient-to-r from-amber-700 via-amber-800 to-rose-800 text-white px-3 sm:px-4 py-2 text-xs font-medium flex items-center justify-between gap-2 sm:gap-3 shadow-md z-40">
+          <div className="flex items-center gap-2 truncate">
+            {isDesktop ? (
+              <Laptop className="w-4 h-4 shrink-0 text-amber-300 animate-pulse" />
+            ) : (
+              <Smartphone className="w-4 h-4 shrink-0 text-amber-300 animate-pulse" />
+            )}
+            <span className="truncate">
+              <strong>{isDesktop ? 'Install on Laptop / PC:' : 'Install on Phone:'}</strong> Runs 100% offline without internet.
+            </span>
           </div>
           <button
             onClick={installApp}
-            className="px-3 py-1 bg-white text-stone-900 rounded-lg text-xs font-bold hover:bg-stone-100 transition-colors shadow-sm shrink-0 flex items-center gap-1.5"
+            className="px-3 py-1 bg-white text-stone-950 rounded-lg text-xs font-extrabold hover:bg-stone-100 transition-colors shadow-sm shrink-0 flex items-center gap-1.5 cursor-pointer active:scale-95"
+            title="Install Mama-G as a standalone application"
           >
-            <Download className="w-3.5 h-3.5 text-amber-600" />
-            <span>{t.installApp}</span>
+            {isDesktop ? (
+              <Laptop className="w-3.5 h-3.5 text-amber-700" />
+            ) : (
+              <Download className="w-3.5 h-3.5 text-amber-700" />
+            )}
+            <span>{isDesktop ? 'Install on PC' : 'Install App'}</span>
           </button>
         </div>
       )}

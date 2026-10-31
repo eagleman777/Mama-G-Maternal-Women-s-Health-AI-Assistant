@@ -13,36 +13,71 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
-          name: "Mama-G | Maternal & Women's Health Assistant",
+          id: '/',
+          name: "Mama-G: Offline-First Maternal & Women's Health Co-Pilot",
           short_name: 'Mama-G',
           description:
             "Empathetic, culturally sensitive digital health assistant for maternal care, symptom triage, menstrual tracking, and Emergency SOS in low-resource environments.",
           theme_color: '#b45309',
-          background_color: '#fafaf9',
+          background_color: '#0c0a09',
           display: 'standalone',
-          orientation: 'portrait',
+          display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
+          orientation: 'any',
+          categories: ['medical', 'health', 'education'],
           scope: '/',
           start_url: '/',
           icons: [
             {
-              src: 'icon-192.png',
+              src: '/icon-192.png',
               sizes: '192x192',
               type: 'image/png',
+              purpose: 'any',
             },
             {
-              src: 'icon-512.png',
+              src: '/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
+              purpose: 'any',
             },
             {
-              src: 'icon-512.png',
+              src: '/icon-512.png',
               sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable',
+              purpose: 'maskable',
+            },
+          ],
+          screenshots: [
+            {
+              src: '/desktop-preview.jpg',
+              sizes: '1280x720',
+              type: 'image/jpeg',
+              form_factor: 'wide',
+              label: "Mama-G Maternal & Women's Health Co-Pilot on Laptop/Desktop",
+            },
+          ],
+          shortcuts: [
+            {
+              name: 'Emergency SOS',
+              short_name: 'Emergency',
+              description: 'Immediate maternal red flags triage and SOS hotline',
+              url: '/',
+              icons: [{ src: '/icon-192.png', sizes: '192x192' }],
+            },
+            {
+              name: 'Consult Mama-G',
+              short_name: 'Midwife AI',
+              description: 'AI Digital Midwife with voice input',
+              url: '/',
+              icons: [{ src: '/icon-192.png', sizes: '192x192' }],
             },
           ],
         },
+        devOptions: {
+          enabled: true,
+          type: 'module',
+        },
         workbox: {
+          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
           runtimeCaching: [
             {

@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { X, Play, RotateCcw, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { X, Play, RotateCcw, AlertTriangle, CheckCircle2, Clock, Share2 } from 'lucide-react';
 
 interface KickCounterModalProps {
   isOpen: boolean;
   onClose: () => void;
   onEmergencyTrigger?: () => void;
+  onOpenSocial?: (text?: string) => void;
 }
 
 export const KickCounterModal: React.FC<KickCounterModalProps> = ({
   isOpen,
   onClose,
   onEmergencyTrigger,
+  onOpenSocial,
 }) => {
   const [kicks, setKicks] = useState<number>(0);
   const [seconds, setSeconds] = useState<number>(0);
@@ -105,9 +107,36 @@ export const KickCounterModal: React.FC<KickCounterModalProps> = ({
 
           {/* Goal reached banner */}
           {isGoalReached && (
-            <div className="mt-4 bg-emerald-950/80 border border-emerald-500/50 text-emerald-200 px-4 py-2 rounded-xl text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Great job! Your baby reached 10 active kicks in {formatTime(seconds)}. Fetal activity looks healthy.</span>
+            <div className="mt-4 space-y-2.5 w-full">
+              <div className="bg-emerald-950/80 border border-emerald-500/50 text-emerald-200 px-4 py-2.5 rounded-xl text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Great job! Your baby reached 10 active kicks in {formatTime(seconds)}. Fetal activity looks healthy.</span>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <a
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                    `🤰 Baby is active & kicking! Just logged 10 healthy kicks in ${formatTime(seconds)} on Mama-G Maternal Health Assistant. Fetal movements look strong! 💕 Track free: ${typeof window !== 'undefined' ? window.location.href : 'https://mama-g.health'}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm"
+                >
+                  <span>💬 Share to WhatsApp</span>
+                </a>
+                {onOpenSocial && (
+                  <button
+                    onClick={() =>
+                      onOpenSocial(
+                        `🤰 Baby is active & kicking! Just logged 10 healthy kicks in ${formatTime(seconds)} on Mama-G Maternal Health Assistant. Fetal movements look strong! 💕 ${typeof window !== 'undefined' ? window.location.href : 'https://mama-g.health'}`
+                      )
+                    }
+                    className="px-3 py-1.5 rounded-xl bg-stone-700 hover:bg-stone-600 text-stone-200 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Social Media</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

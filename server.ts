@@ -1,5 +1,7 @@
 import express, { Request, Response } from 'express';
-import { GoogleGenAI, Type } from '@google/genai';
+import http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import { GoogleGenAI, Type, Modality } from '@google/genai';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -171,10 +173,18 @@ app.post('/api/g-corner', async (req: Request, res: Response) => {
   }
 });
 
-// Chat endpoint (Gemini 3.8 Flash)
+// Enhanced Chat endpoint supporting gemini-4-argon, gemini-3.8-flash, gemini-3.1-flash-lite, Google Search, and Google Maps grounding
 app.post('/api/chat', async (req: Request, res: Response) => {
   try {
-    const { messages, userContext, language } = req.body;
+    const {
+      messages,
+      userContext,
+      language,
+      model = 'gemini-3.8-flash',
+      useSearchGrounding = false,
+      useMapsGrounding = false,
+      userLocation,
+    } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
       res.status(400).json({ error: 'Messages array is required' });
@@ -208,21 +218,191 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       }
     }
 
+    // Selected model per requirements:
+    // 'gemini-4-argon' for complex clinical reasoning
+    // 'gemini-3.8-flash' for general tasks
+    // 'gemini-3.1-flash-lite' for fast tasks
+    const validModel =
+      model === 'gemini-4-argon' || model === 'gemini-3.1-flash-lite'
+        ? model
+        : 'gemini-3.8-flash';
+
+    const config: any = {
+      systemInstruction: SYSTEM_INSTRUCTION_MAMA_G,
+      temperature: 0.2,
+    };
+
+    // Grounding tools configuration (note: googleMaps cannot be combined with googleSearch)
+    if (useMapsGrounding) {
+      config.tools = [{ googleMaps: {} }];
+      if (userLocation && typeof userLocation.latitude === 'number' && typeof userLocation.longitude === 'number') {
+        config.toolConfig = {
+          retrievalConfig: {
+            latLng: {
+              latitude: userLocation.latitude,
+              longitude: userLocation.longitude,
+            },
+          },
+        };
+      }
+    } else if (useSearchGrounding) {
+      config.tools = [{ googleSearch: {} }];
+    }
+
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: validModel,
       contents: formattedContents,
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION_MAMA_G,
-        temperature: 0.1,
-      },
+      config,
     });
 
-    res.json({ text: response.text });
+    const groundingChunks =
+      response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+    res.json({
+      text: response.text,
+      groundingChunks,
+      modelUsed: validModel,
+    });
   } catch (error: any) {
     console.error('Mama-G Chat Error:', error);
     res.status(500).json({
       error: 'Unable to process Mama-G consultation at this moment.',
       details: error.message || String(error),
+    });
+  }
+});
+
+// Dedicated Google Maps Grounding Endpoint using gemini-3.8-flash
+app.post('/api/gemini/maps', async (req: Request, res: Response) => {
+  try {
+    const { prompt, userLocation } = req.body;
+    if (!prompt) {
+      res.status(400).json({ error: 'Prompt is required' });
+      return;
+    }
+
+    const config: any = {
+      systemInstruction: SYSTEM_INSTRUCTION_MAMA_G,
+      tools: [{ googleMaps: {} }],
+    };
+
+    if (userLocation && typeof userLocation.latitude === 'number' && typeof userLocation.longitude === 'number') {
+      config.toolConfig = {
+        retrievalConfig: {
+          latLng: {
+            latitude: Number(userLocation.latitude),
+            longitude: Number(userLocation.longitude),
+          },
+        },
+      };
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config,
+    });
+
+    const groundingChunks =
+      response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+    res.json({
+      text: response.text,
+      groundingChunks,
+    });
+  } catch (error: any) {
+    console.error('Gemini Maps Grounding Error:', error);
+    res.status(500).json({
+      error: 'Maps Grounding query failed',
+      details: error.message || String(error),
+    });
+  }
+});
+
+// Dedicated Google Search Grounding Endpoint using gemini-3.8-flash
+app.post('/api/gemini/search', async (req: Request, res: Response) => {
+  try {
+    const { prompt, language } = req.body;
+    if (!prompt) {
+      res.status(400).json({ error: 'Prompt is required' });
+      return;
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: `Language: ${language || 'English'}\n\nSearch and answer: ${prompt}`,
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION_MAMA_G,
+        tools: [{ googleSearch: {} }],
+      },
+    });
+
+    const groundingChunks =
+      response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+
+    res.json({
+      text: response.text,
+      groundingChunks,
+    });
+  } catch (error: any) {
+    console.error('Gemini Search Grounding Error:', error);
+    res.status(500).json({
+      error: 'Search Grounding query failed',
+      details: error.message || String(error),
+    });
+  }
+});
+
+// Dynamic Clinical Emergency Quiz generator for Midwife Odyssey 3D Game
+app.post('/api/game/quiz', async (req: Request, res: Response) => {
+  try {
+    const { topic = 'labor_complications', difficulty = 'normal', language = 'English' } = req.body;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: `Generate a fast, exciting 4-choice clinical triage question for a Community Midwife video game based on topic: ${topic}, difficulty: ${difficulty}, language: ${language}.
+      The player must make a split-second life-saving choice for a mother in labor or emergency.`,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            scenario: { type: Type.STRING, description: '1-2 sentence dramatic emergency scenario' },
+            options: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  text: { type: Type.STRING },
+                  isCorrect: { type: Type.BOOLEAN },
+                  explanation: { type: Type.STRING },
+                },
+                required: ['id', 'text', 'isCorrect', 'explanation'],
+              },
+            },
+            clinicalPearl: { type: Type.STRING, description: 'WHO / FMOH clinical wisdom' },
+            bonusPoints: { type: Type.NUMBER },
+          },
+          required: ['scenario', 'options', 'clinicalPearl', 'bonusPoints'],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{}');
+    res.json(parsed);
+  } catch (error: any) {
+    console.error('Game Quiz Error:', error);
+    res.json({
+      scenario: 'A mother at 38 weeks in labor develops a sudden severe headache, blurred vision, and elevated blood pressure (160/110 mmHg). What is your immediate priority action?',
+      options: [
+        { id: 'A', text: 'Administer emergency Magnesium Sulfate protocol and transfer immediately', isCorrect: true, explanation: 'Imminent eclampsia danger sign; MgSO4 prevents maternal convulsions and brain damage.' },
+        { id: 'B', text: 'Tell her to lie on her back and drink cold water', isCorrect: false, explanation: 'Supine hypotension and delay increase stroke and fetal hypoxia risk.' },
+        { id: 'C', text: 'Wait 6 hours to see if headache subsides', isCorrect: false, explanation: 'Severe preeclampsia requires prompt active clinical intervention.' },
+        { id: 'D', text: 'Give unverified herbal agbo brew', isCorrect: false, explanation: 'Herbal concoctions can trigger kidney collapse and heavy uterine rupture.' },
+      ],
+      clinicalPearl: 'WHO recommends loading dose Magnesium Sulfate (4g IV / 10g IM) as the gold standard for severe pre-eclampsia and eclampsia.',
+      bonusPoints: 250,
     });
   }
 });
@@ -417,7 +597,79 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
+  const server = http.createServer(app);
+
+  // Gemini 3.8 Live API WebSocket Bridge for Real-Time Voice Conversations
+  const wss = new WebSocketServer({ server, path: '/live' });
+
+  wss.on('connection', async (clientWs: WebSocket) => {
+    console.log('[Live API] Client connected to Voice WebSocket');
+    let session: any = null;
+
+    try {
+      session = await ai.live.connect({
+        model: 'gemini-3.8-live',
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+          },
+          systemInstruction: SYSTEM_INSTRUCTION_MAMA_G,
+        },
+        callbacks: {
+          onmessage: (message: any) => {
+            try {
+              if (clientWs.readyState !== WebSocket.OPEN) return;
+
+              for (const part of message.serverContent?.modelTurn?.parts ?? []) {
+                if (part.inlineData?.data) {
+                  clientWs.send(JSON.stringify({ audio: part.inlineData.data }));
+                }
+                if (part.text) {
+                  clientWs.send(JSON.stringify({ text: part.text }));
+                }
+              }
+
+              if (message.serverContent?.interrupted) {
+                clientWs.send(JSON.stringify({ interrupted: true }));
+              }
+            } catch (err) {
+              console.error('[Live API] Error forwarding server message to client:', err);
+            }
+          },
+        },
+      });
+
+      clientWs.send(JSON.stringify({ type: 'ready', message: 'Mama-G Live connected' }));
+
+      clientWs.on('message', (data: any) => {
+        try {
+          const parsed = JSON.parse(data.toString());
+          if (parsed.audio && session) {
+            session.sendRealtimeInput({
+              audio: { data: parsed.audio, mimeType: 'audio/pcm;rate=16000' },
+            });
+          }
+        } catch (err) {
+          console.error('[Live API] Error handling client message:', err);
+        }
+      });
+
+      clientWs.on('close', () => {
+        console.log('[Live API] Client disconnected from Voice WebSocket');
+        try {
+          session?.close?.();
+        } catch {}
+      });
+    } catch (err: any) {
+      console.error('[Live API] Error initializing session:', err);
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify({ error: 'Failed to initialize Live API session', details: err.message }));
+      }
+    }
+  });
+
+  server.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Mama-G Server running on http://0.0.0.0:${PORT}`);
   });
 }

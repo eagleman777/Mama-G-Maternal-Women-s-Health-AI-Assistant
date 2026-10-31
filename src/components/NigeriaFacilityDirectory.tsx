@@ -17,6 +17,12 @@ import {
   Layers,
   ChevronRight,
   HeartPulse,
+  Maximize2,
+  Minimize2,
+  Map as MapIcon,
+  RotateCw,
+  Compass,
+  Sparkles,
 } from 'lucide-react';
 import {
   NIGERIA_774_LGA_HEALTH_REGISTRY,
@@ -39,6 +45,9 @@ export const NigeriaFacilityDirectory: React.FC<NigeriaFacilityDirectoryProps> =
   onOpenEmergency,
   onAskMamaG,
 }) => {
+  const [directoryView, setDirectoryView] = useState<'both' | 'map' | 'registry'>('both');
+  const [isMapExpanded, setIsMapExpanded] = useState<boolean>(false);
+  const [mapKey, setMapKey] = useState<number>(0);
   const [selectedState, setSelectedState] = useState<string>('All');
   const [selectedLga, setSelectedLga] = useState<string>('All');
   const [selectedTier, setSelectedTier] = useState<string>('All');
@@ -190,9 +199,148 @@ export const NigeriaFacilityDirectory: React.FC<NigeriaFacilityDirectoryProps> =
         </div>
       </div>
 
-      {/* QUICK LGA FINDER CARD ("Find PHC in My LGA") */}
-      <div className="bg-stone-900 border border-amber-500/30 rounded-2xl p-5 shadow-lg space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
+      {/* View Switcher: Interactive Google Map vs 774 LGA Health Registry */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-900 border border-stone-800 rounded-2xl p-3.5 shadow-md">
+        <div className="flex items-center gap-2">
+          <Compass className="w-5 h-5 text-amber-400" />
+          <span className="font-bold text-white text-xs sm:text-sm">Facility Discovery Mode:</span>
+        </div>
+        <div className="flex items-center gap-1.5 p-1 bg-stone-950 rounded-xl border border-stone-800 shrink-0">
+          <button
+            type="button"
+            onClick={() => setDirectoryView('map')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              directoryView === 'map'
+                ? 'bg-amber-500 text-stone-950 shadow-sm'
+                : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            <MapIcon className="w-3.5 h-3.5" />
+            <span>🗺️ Google Map Discovery</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDirectoryView('registry')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              directoryView === 'registry'
+                ? 'bg-amber-500 text-stone-950 shadow-sm'
+                : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            <Building2 className="w-3.5 h-3.5" />
+            <span>🏥 774 LGA Registry</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDirectoryView('both')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              directoryView === 'both'
+                ? 'bg-amber-500 text-stone-950 shadow-sm'
+                : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>🔲 Both Views</span>
+          </button>
+        </div>
+      </div>
+
+      {/* GOOGLE MAPS NEIGHBORHOOD DISCOVERY EMBED */}
+      {(directoryView === 'map' || directoryView === 'both') && (
+        <div className="bg-stone-900 border border-amber-500/30 rounded-2xl p-4 sm:p-5 shadow-xl space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🗺️</span>
+                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                  Google Maps Neighborhood Discovery
+                </h2>
+                <span className="bg-blue-500/20 text-blue-300 border border-blue-500/40 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  Interactive Healthcare Map
+                </span>
+              </div>
+              <p className="text-xs text-stone-300 mt-0.5 max-w-2xl">
+                Explore nearby hospitals, clinics, emergency rooms, pharmacies, and maternal facilities in real-time. Zoom, pan, search places, and get navigation directions.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setMapKey((prev) => prev + 1)}
+                className="h-8 px-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-stone-700 transition-colors cursor-pointer"
+                title="Reload Map View"
+              >
+                <RotateCw className="w-3.5 h-3.5 text-stone-400" />
+                <span>Reload</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsMapExpanded(!isMapExpanded)}
+                className="h-8 px-2.5 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 border border-stone-700 transition-colors cursor-pointer"
+                title={isMapExpanded ? 'Compact View' : 'Expand Map Height'}
+              >
+                {isMapExpanded ? (
+                  <>
+                    <Minimize2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Compact</span>
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Expand</span>
+                  </>
+                )}
+              </button>
+              <a
+                href="https://storage.googleapis.com/maps-solutions-haoyahw7uk/neighborhood-discovery/b7uq/neighborhood-discovery.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="h-8 px-3 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                title="Open Google Map in Full New Window"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Fullscreen</span>
+              </a>
+            </div>
+          </div>
+
+          {/* User's Exact Google Map Neighborhood Discovery Solution Iframe */}
+          <div className="relative w-full rounded-xl overflow-hidden border border-stone-800 bg-stone-950 shadow-inner">
+            <iframe
+              key={mapKey}
+              src="https://storage.googleapis.com/maps-solutions-haoyahw7uk/neighborhood-discovery/b7uq/neighborhood-discovery.html"
+              width="100%"
+              height="100%"
+              style={{ border: 0 }}
+              loading="lazy"
+              title="Google Maps Neighborhood Discovery - Health Facilities"
+              className={`w-full transition-all duration-300 ${
+                isMapExpanded ? 'h-[750px]' : 'h-[480px] sm:h-[580px]'
+              }`}
+              allow="geolocation; camera"
+            />
+          </div>
+
+          {/* Help note under map */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 text-[11px] text-stone-400">
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+              <span>Use the map search box above to find specialized centers or local maternity posts.</span>
+            </span>
+            <span className="font-mono text-amber-400/90">
+              Emergency Dispatch: 112 · FRSC: 122
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* 774 LGA REGISTRY SECTION */}
+      {(directoryView === 'registry' || directoryView === 'both') && (
+        <>
+          {/* QUICK LGA FINDER CARD ("Find PHC in My LGA") */}
+          <div className="bg-stone-900 border border-amber-500/30 rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2 text-amber-400 font-bold text-sm sm:text-base">
             <MapPin className="w-5 h-5 text-amber-500" />
             <span>Fast LGA Health Center Finder: Locate Your Nearest Facility</span>
@@ -292,13 +440,26 @@ export const NigeriaFacilityDirectory: React.FC<NigeriaFacilityDirectoryProps> =
                 <span className="font-mono text-amber-300 font-bold text-xs">
                   {finderResult.lgaInfo.primaryFacilityPhone}
                 </span>
-                <a
-                  href={`tel:${finderResult.lgaInfo.primaryFacilityPhone.replace(/[^0-9]/g, '')}`}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1"
-                >
-                  <PhoneCall className="w-3 h-3" />
-                  <span>Call PHC</span>
-                </a>
+                <div className="flex items-center gap-1.5">
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                      `🏥 Primary Health Care Centre (PHC) via Mama-G:\nFacility: ${finderResult.lgaInfo.primaryFacilityName}\nLGA: ${finderResult.lgaInfo.name}, ${finderResult.stateData.state}\nPhone: ${finderResult.lgaInfo.primaryFacilityPhone}\nVerified Health Directory: ${typeof window !== 'undefined' ? window.location.href : 'https://mama-g.health'}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-500/40 text-emerald-300 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1"
+                    title="Share facility to WhatsApp"
+                  >
+                    <span>💬 Share</span>
+                  </a>
+                  <a
+                    href={`tel:${finderResult.lgaInfo.primaryFacilityPhone.replace(/[^0-9]/g, '')}`}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1"
+                  >
+                    <PhoneCall className="w-3 h-3" />
+                    <span>Call PHC</span>
+                  </a>
+                </div>
               </div>
             </div>
 
@@ -336,17 +497,42 @@ export const NigeriaFacilityDirectory: React.FC<NigeriaFacilityDirectoryProps> =
                     finderResult.closestGeneralHospital?.phone ||
                     finderResult.stateData.stateDispatchLine}
                 </span>
-                <a
-                  href={`tel:${(
-                    finderResult.closestSpecialist?.phone ||
-                    finderResult.closestGeneralHospital?.phone ||
-                    finderResult.stateData.stateDispatchLine
-                  ).replace(/[^0-9]/g, '')}`}
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1"
-                >
-                  <PhoneCall className="w-3 h-3" />
-                  <span>Call Hospital</span>
-                </a>
+                <div className="flex items-center gap-1.5">
+                  <a
+                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
+                      `🏥 Referral Hospital via Mama-G:\nFacility: ${
+                        finderResult.closestSpecialist?.name ||
+                        finderResult.closestGeneralHospital?.name ||
+                        'State General Hospital'
+                      }\nAddress: ${
+                        finderResult.closestSpecialist?.address ||
+                        finderResult.closestGeneralHospital?.address ||
+                        'State Referral Centre'
+                      }\nPhone: ${
+                        finderResult.closestSpecialist?.phone ||
+                        finderResult.closestGeneralHospital?.phone ||
+                        finderResult.stateData.stateDispatchLine
+                      }\nEmergency Referral: ${typeof window !== 'undefined' ? window.location.href : 'https://mama-g.health'}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-blue-950/80 hover:bg-blue-900 border border-blue-500/40 text-blue-300 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1"
+                    title="Share hospital to WhatsApp"
+                  >
+                    <span>💬 Share</span>
+                  </a>
+                  <a
+                    href={`tel:${(
+                      finderResult.closestSpecialist?.phone ||
+                      finderResult.closestGeneralHospital?.phone ||
+                      finderResult.stateData.stateDispatchLine
+                    ).replace(/[^0-9]/g, '')}`}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1"
+                  >
+                    <PhoneCall className="w-3 h-3" />
+                    <span>Call Hospital</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -621,24 +807,26 @@ export const NigeriaFacilityDirectory: React.FC<NigeriaFacilityDirectoryProps> =
         )}
       </div>
 
-      {/* Maternal Emergency Referral Protocol Card */}
-      <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-5 text-xs text-stone-300 space-y-2">
-        <h4 className="font-bold text-white text-sm flex items-center gap-2">
-          <Activity className="w-4 h-4 text-rose-400" />
-          Clinical Referral Protocol for Community Health Workers & Families:
-        </h4>
-        <ul className="list-disc pl-5 space-y-1 text-stone-400">
-          <li>
-            <strong>First-line triage at Primary Health Centres (PHCs)</strong>: Every LGA operates designated Model PHCs for routine antenatal care (ANC), normal spontaneous vaginal deliveries, routine immunization, and early complication screening.
-          </li>
-          <li>
-            <strong>Secondary Escalation (General Hospitals)</strong>: If maternal convulsions (eclampsia), obstructed labor (&gt;12 hours), severe bleeding, or twin delivery complications arise, immediately initiate transfer to the State General Hospital equipped with a surgical operating theater.
-          </li>
-          <li>
-            <strong>Tertiary Care (Teaching Hospitals & FMCs)</strong>: Tertiary centers (e.g., LUTH, UCH, UNTH, AKTH, ABUTH, UPTH, National Hospital Abuja) provide Comprehensive Emergency Obstetric and Newborn Care (CEmONC), intensive neonatal incubators (NICU), and specialized fistula surgery.
-          </li>
-        </ul>
-      </div>
+          {/* Maternal Emergency Referral Protocol Card */}
+          <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-5 text-xs text-stone-300 space-y-2">
+            <h4 className="font-bold text-white text-sm flex items-center gap-2">
+              <Activity className="w-4 h-4 text-rose-400" />
+              Clinical Referral Protocol for Community Health Workers & Families:
+            </h4>
+            <ul className="list-disc pl-5 space-y-1 text-stone-400">
+              <li>
+                <strong>First-line triage at Primary Health Centres (PHCs)</strong>: Every LGA operates designated Model PHCs for routine antenatal care (ANC), normal spontaneous vaginal deliveries, routine immunization, and early complication screening.
+              </li>
+              <li>
+                <strong>Secondary Escalation (General Hospitals)</strong>: If maternal convulsions (eclampsia), obstructed labor (&gt;12 hours), severe bleeding, or twin delivery complications arise, immediately initiate transfer to the State General Hospital equipped with a surgical operating theater.
+              </li>
+              <li>
+                <strong>Tertiary Care (Teaching Hospitals & FMCs)</strong>: Tertiary centers (e.g., LUTH, UCH, UNTH, AKTH, ABUTH, UPTH, National Hospital Abuja) provide Comprehensive Emergency Obstetric and Newborn Care (CEmONC), intensive neonatal incubators (NICU), and specialized fistula surgery.
+              </li>
+            </ul>
+          </div>
+        </>
+      )}
     </div>
   );
 };

@@ -9,12 +9,18 @@ import {
   Info,
   ArrowRight,
   ShieldAlert,
+  ShieldCheck,
   Printer,
   RotateCcw,
+  Lock,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import { StructuredTriageResult, SupportedLanguage, TriageSeverity } from '../types';
 import { EMERGENCY_RED_FLAGS } from '../data/clinicalKnowledge';
 import { WomenAilmentsSection } from './WomenAilmentsSection';
+import { useCrypto } from '../context/CryptoContext';
+import { NotarizedHealthReceipt } from '../utils/crypto';
 
 interface SymptomTriageMatrixProps {
   language: SupportedLanguage;
@@ -46,6 +52,28 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [result, setResult] = useState<StructuredTriageResult | null>(null);
+
+  // Algorand cryptographic notarization hook
+  const { notarizeHealthRecord, isNotarizing } = useCrypto();
+  const [notarizedReceipt, setNotarizedReceipt] = useState<NotarizedHealthReceipt | null>(null);
+
+  const handleAnchorTriage = async () => {
+    if (!result) return;
+    try {
+      const rcpt = await notarizeHealthRecord('triage', `Triage: ${result.headline}`, {
+        severity: result.severity,
+        headline: result.headline,
+        dangerSigns: result.dangerSignsDetected,
+        bloodPressure: bpSystolic && bpDiastolic ? `${bpSystolic}/${bpDiastolic}` : 'Not measured',
+        temperature: temperature || 'Normal',
+        patientType,
+        gestationWeeks: patientType === 'pregnant' ? gestationWeeks : undefined,
+      });
+      setNotarizedReceipt(rcpt);
+    } catch (err) {
+      console.error('Failed to anchor triage:', err);
+    }
+  };
 
   const symptomChecklist = [
     {
@@ -696,6 +724,62 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
                 <span className="text-stone-300 text-[11px] mt-0.5 block">
                   {result.whenToRushToHospital}
                 </span>
+              </div>
+
+              {/* Algorand Decentralized Health Attestation */}
+              <div className="bg-stone-950/90 border border-stone-800 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400">
+                    <ShieldCheck className="w-4 h-4 text-amber-400" />
+                    <span>Algorand Decentralized Attestation</span>
+                  </div>
+                  <span className="text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 px-2 py-0.5 rounded font-mono">
+                    Pure PoS Proof
+                  </span>
+                </div>
+
+                {notarizedReceipt ? (
+                  <div className="p-2.5 bg-emerald-950/60 border border-emerald-500/40 rounded-lg space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between text-emerald-300 font-bold">
+                      <span className="flex items-center gap-1.5">
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Anchored on Algorand Ledger</span>
+                      </span>
+                      <span className="text-[10px] text-stone-400">Ed25519 Signed</span>
+                    </div>
+                    <div className="font-mono text-[10px] text-stone-300 space-y-0.5 bg-black/40 p-1.5 rounded">
+                      <div>TxID: <span className="text-amber-300 font-bold">{notarizedReceipt.txId}</span></div>
+                      <div>Hash: <span className="text-stone-400">{notarizedReceipt.sha256Hash.slice(0, 24)}...</span></div>
+                    </div>
+                    <p className="text-[10px] text-stone-400">
+                      Receipt sealed in your local browser keystore. Provides tamper-evident verification for healthcare workers.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-stone-400 leading-relaxed">
+                      Generate an immutable cryptographic hash and digital signature for this triage evaluation on the Algorand ledger.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleAnchorTriage}
+                      disabled={isNotarizing}
+                      className="w-full py-2 px-3 bg-stone-900 hover:bg-stone-800 text-amber-300 border border-amber-500/40 hover:border-amber-500/80 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      {isNotarizing ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                          <span>Signing with Algorand Key...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Anchor Triage Record to Algorand</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Direct Link to VVF Hub if Fistula Detected */}

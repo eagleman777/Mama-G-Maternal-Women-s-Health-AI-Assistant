@@ -85,6 +85,45 @@ Mama-G is designed and developed in strict alignment with the **UNICEF Innovatio
   - **Cryptographic Protection:** Referral credentials utilize zero-knowledge cryptographic hashes on the Algorand blockchain to issue verifiable care vouchers anonymously.
 - **Accessibility & Inclusivity:** Built specifically for low-resource, disconnected settings with plain-language clinical guidance tailored for Community Health Workers (CHWs) and rural maternal care.
 
+## 💻 1-Click Installation on Laptops & Desktops (Windows, Mac, Chromebook, Linux)
+
+Mama-G installs as an independent, distraction-free desktop application on any laptop or workstation without requiring `.exe` downloads or administrator privileges:
+
+### 🪟 Windows / Chromebook / Linux (Chrome, Edge, Brave)
+1. Open Mama-G in **Chrome**, **Microsoft Edge**, or **Brave**.
+2. Look at the right side of the **address bar (URL bar)** and click the **Install icon** (🖥️ or ⬇️).
+3. Alternatively, click the top-right menu **(⋮ or ⋯)** → **"Install Mama-G"** or **"Save and share" → "Install page as app"**.
+4. Click **"Install"**. Mama-G opens in its own window and creates a shortcut on your **Desktop**, **Windows Taskbar**, or **Chromebook shelf**!
+
+### 🍎 Apple Mac (Safari on macOS Sonoma 14+ or Chrome/Edge)
+1. Open Mama-G in **Safari**.
+2. In the top macOS menu bar, click **File** → select **"Add to Dock..."**.
+3. Click **"Add"**. Mama-G is now an independent Mac app in your **Dock** and **Applications** folder!
+
+---
+
+## 📲 1-Tap Installation on Any Phone (Android & iOS)
+
+Mama-G is engineered as an offline-first **Progressive Web App (PWA)** that installs directly to any smartphone home screen in seconds without requiring Google Play Store or Apple App Store accounts:
+
+### 🤖 For Android (Chrome, Samsung Internet, Edge, Opera, Firefox)
+1. Open Mama-G in **Chrome** or your default mobile browser.
+2. Tap the prominent **"📲 Install on Phone"** button in the top navigation or welcome banner.
+3. Tap **"Install"** or **"Add to Home screen"**.
+4. The 🌺 Mama-G app icon will appear directly on your home screen and launcher, running 100% offline!
+
+### 🍎 For iPhone / iPad (Apple Safari)
+1. Open Mama-G in **Safari** on your iOS device.
+2. Tap the **Share button** (`⎋` box with an upward arrow) in the bottom toolbar.
+3. Scroll down the menu and tap **"Add to Home Screen" ➕**.
+4. Tap **"Add"** at the top right corner.
+
+### 🌟 Benefits of Phone Installation:
+- **Zero Data & Airtime Needed**: Evaluates maternal red flags and calculates gestational weeks even with zero internet connectivity.
+- **Under 5MB Footprint**: Optimized for low-cost, budget Android devices (Tecno, Infinix, itel, Samsung Galaxy A).
+- **Instant Full-Screen Access**: Launches immediately with a single tap, free of browser bars or search distraction.
+- **Private & Safe**: Zero PII collected; personal health journals and Algorand vouchers never leave the user's phone.
+
 ---
 
 ## Quick Start (Developer Setup)
@@ -113,28 +152,4 @@ Bash
 Contributing & License
 We welcome contributions from clinicians, software developers, and public health researchers.
 
-Mama-G is open-source software licensed under the Apache License 2.0. Developed by PalmFarm.AI Technologies Limited.
-
-LICENSE
-MIT License
-
-Copyright (c) 2026 PalmFarm.AI Technologies Limited
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Mama-G is open-source software licensed under the MIT License Developed by PalmFarm.AI Technologies Limited.

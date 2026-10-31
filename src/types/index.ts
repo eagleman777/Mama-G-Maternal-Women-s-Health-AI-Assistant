@@ -21,6 +21,8 @@ export interface ChatMessage {
   severity?: TriageSeverity;
   audioBase64?: string;
   isAudioLoading?: boolean;
+  groundingChunks?: any[];
+  modelUsed?: string;
 }
 
 export interface StructuredTriageResult {

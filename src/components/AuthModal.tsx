@@ -12,8 +12,16 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
+  Copy,
+  Check,
+  Key,
+  RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useCrypto } from '../context/CryptoContext';
+import { formatAlgorandAddress } from '../utils/crypto';
 import { SupportedLanguage } from '../types';
 import { UI_TRANSLATIONS } from '../data/translations';
 
@@ -43,6 +51,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [isSavingProfile, setIsSavingProfile] = useState<boolean>(false);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+
+  // Algorand anonymous crypto identity
+  const {
+    address,
+    mnemonic,
+    isLoading: isCryptoLoading,
+    regenerateIdentity,
+    copyAddress,
+    copyMnemonic,
+  } = useCrypto();
+  const [showMnemonic, setShowMnemonic] = useState<boolean>(false);
+  const [copiedAddr, setCopiedAddr] = useState<boolean>(false);
+  const [copiedMn, setCopiedMn] = useState<boolean>(false);
+
+  const handleCopyAddress = async () => {
+    const success = await copyAddress();
+    if (success) {
+      setCopiedAddr(true);
+      setTimeout(() => setCopiedAddr(false), 2000);
+    }
+  };
+
+  const handleCopyMnemonic = async () => {
+    const success = await copyMnemonic();
+    if (success) {
+      setCopiedMn(true);
+      setTimeout(() => setCopiedMn(false), 2000);
+    }
+  };
 
   // Local state for profile edits
   const [editRole, setEditRole] = useState<'mother' | 'postpartum' | 'adolescent' | 'chw'>(
@@ -206,6 +243,96 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <p className="text-[11px] text-stone-400 text-center">
                 By continuing, you connect securely via Google Sign-In to sync your maternal care profile.
               </p>
+
+              {/* Anonymous Algorand Blockchain Identity Card */}
+              <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3.5 space-y-2.5 mt-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-amber-400" />
+                    <span className="text-xs font-bold text-white">Anonymous Algorand Keystore</span>
+                  </div>
+                  <span className="text-[10px] font-mono uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                    Active & Stored Locally
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-stone-400 leading-relaxed">
+                  You are browsing in decentralized privacy mode. Your 25-word Algorand identity is stored locally in your browser for zero-knowledge health access.
+                </p>
+
+                {isCryptoLoading ? (
+                  <div className="py-2 flex items-center gap-2 text-xs text-stone-400">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                    <span>Loading Algorand identity...</span>
+                  </div>
+                ) : address ? (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between bg-stone-900 border border-stone-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-stone-300">
+                      <span className="truncate mr-2" title={address}>
+                        {formatAlgorandAddress(address, 10, 8)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleCopyAddress}
+                        className="text-stone-400 hover:text-amber-400 transition-colors p-1 flex items-center gap-1 text-[11px] shrink-0"
+                        title="Copy Public Address"
+                      >
+                        {copiedAddr ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        <span>{copiedAddr ? 'Copied' : 'Copy Address'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowMnemonic(!showMnemonic)}
+                        className="text-[11px] text-stone-400 hover:text-stone-200 flex items-center gap-1.5 transition-colors cursor-pointer"
+                      >
+                        {showMnemonic ? <EyeOff className="w-3.5 h-3.5 text-stone-400" /> : <Eye className="w-3.5 h-3.5 text-stone-400" />}
+                        <span>{showMnemonic ? 'Hide 25-word Recovery Key' : 'View 25-word Recovery Key'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm('Regenerate anonymous identity? A new Algorand keypair and mnemonic will be stored in your browser.')) {
+                            regenerateIdentity();
+                          }
+                        }}
+                        className="text-[11px] text-stone-400 hover:text-amber-400 flex items-center gap-1 transition-colors cursor-pointer"
+                        title="Regenerate anonymous identity"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        <span>Regenerate</span>
+                      </button>
+                    </div>
+
+                    {showMnemonic && mnemonic && (
+                      <div className="p-2.5 bg-stone-900 border border-amber-900/40 rounded-lg space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider flex items-center gap-1">
+                            <Key className="w-3 h-3" />
+                            <span>Algorand Secret Mnemonic</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleCopyMnemonic}
+                            className="text-[10px] text-stone-400 hover:text-white flex items-center gap-1 bg-stone-800 px-2 py-0.5 rounded cursor-pointer"
+                          >
+                            {copiedMn ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            <span>{copiedMn ? 'Copied' : 'Copy Mnemonic'}</span>
+                          </button>
+                        </div>
+                        <p className="font-mono text-[11px] leading-relaxed text-stone-300 select-all bg-black/40 p-2 rounded border border-stone-800 break-words">
+                          {mnemonic}
+                        </p>
+                        <p className="text-[10px] text-amber-500/80">
+                          Keep this 25-word phrase private. It proves ownership of your anonymous consultations and on-chain health hashes.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
             /* Signed In View */
