@@ -189,14 +189,25 @@ export const PersonaSelection: React.FC<PersonaSelectionProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={installApp}
-            className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-amber-400 to-rose-500 hover:from-amber-300 hover:to-rose-400 active:scale-95 text-stone-950 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all cursor-pointer shrink-0"
-          >
-            {isDesktop ? <Laptop className="w-4 h-4 text-stone-950" /> : <Download className="w-4 h-4 text-stone-950" />}
-            <span>{isDesktop ? 'Install on Laptop / PC' : 'Install on Phone'}</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
+            <button
+              type="button"
+              onClick={installApp}
+              className="flex-1 sm:flex-initial px-4 py-2.5 bg-gradient-to-r from-amber-400 to-rose-500 hover:from-amber-300 hover:to-rose-400 active:scale-95 text-stone-950 font-black text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-amber-950/50 transition-all cursor-pointer"
+            >
+              {isDesktop ? <Laptop className="w-4 h-4 text-stone-950" /> : <Download className="w-4 h-4 text-stone-950" />}
+              <span>{isDesktop ? 'Install on Laptop / PC' : 'Install on Phone'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={openInstallModal}
+              className="flex-1 sm:flex-initial px-3.5 py-2.5 bg-stone-800 hover:bg-stone-700 text-amber-300 border border-amber-500/30 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              title="Install on Android & iOS Phones or scan QR code"
+            >
+              <Smartphone className="w-4 h-4 text-amber-400" />
+              <span>Android & iOS Guide</span>
+            </button>
+          </div>
         </div>
       )}
 

@@ -1,0 +1,38 @@
+{
+  "dataset_name": "Mama-G Lower Cross Ibibio & Ibeno Clinical ASR Gold Dataset",
+  "version": "1.0.0",
+  "samples": [
+    {
+      "sample_id": "IBB-CLINICAL-01",
+      "audio_path": "./audio/ibibio_preeclampsia_01.wav",
+      "language_code": "ibb",
+      "clinical_concept": "Sudden Facial & Hand Swelling (Pre-eclampsia)",
+      "ground_truth": "Idem usụhọk ke iso ye ubọk",
+      "critical_keywords": ["idem usụhọk", "iso", "ubọk"]
+    },
+    {
+      "sample_id": "IBN-CLINICAL-02",
+      "audio_path": "./audio/ibeno_malaria_fever_01.wav",
+      "language_code": "ibn",
+      "clinical_concept": "Vector-Borne Malaria Fever & Chills",
+      "ground_truth": "Utọdọn̄ ye ofụn̄ ekpere usen",
+      "critical_keywords": ["utọdọn̄", "ofụn̄"]
+    },
+    {
+      "sample_id": "IBB-CLINICAL-03",
+      "audio_path": "./audio/ibibio_heat_stress_01.wav",
+      "language_code": "ibb",
+      "clinical_concept": "Extreme Ambient Heat Stress & Dizziness",
+      "ground_truth": "Idem kpon̄ ut mama ekeme ndikot udim",
+      "critical_keywords": ["idem kpon̄", "udim"]
+    },
+    {
+      "sample_id": "IBN-CLINICAL-04",
+      "audio_path": "./audio/ibeno_flood_ors_01.wav",
+      "language_code": "ibn",
+      "clinical_concept": "Post-Flood Water-Borne ORS Protocol",
+      "ground_truth": "N̄wọn̄ edisana mmọn̄ ye ORS ke mfụt",
+      "critical_keywords": ["edisana mmọn̄", "ors", "mfụt"]
+    }
+  ]
+}

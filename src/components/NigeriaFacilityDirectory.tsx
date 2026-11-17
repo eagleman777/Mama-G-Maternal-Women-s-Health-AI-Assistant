@@ -293,7 +293,7 @@ export const NigeriaFacilityDirectory: React.FC<NigeriaFacilityDirectoryProps> =
                 )}
               </button>
               <a
-                href="https://storage.googleapis.com/maps-solutions-haoyahw7uk/neighborhood-discovery/b7uq/neighborhood-discovery.html"
+                href="https://storage.googleapis.com/maps-solutions-haoyahw7uk/neighborhood-discovery/17ya/neighborhood-discovery.html"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="h-8 px-3 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
@@ -309,7 +309,7 @@ export const NigeriaFacilityDirectory: React.FC<NigeriaFacilityDirectoryProps> =
           <div className="relative w-full rounded-xl overflow-hidden border border-stone-800 bg-stone-950 shadow-inner">
             <iframe
               key={mapKey}
-              src="https://storage.googleapis.com/maps-solutions-haoyahw7uk/neighborhood-discovery/b7uq/neighborhood-discovery.html"
+              src="https://storage.googleapis.com/maps-solutions-haoyahw7uk/neighborhood-discovery/17ya/neighborhood-discovery.html"
               width="100%"
               height="100%"
               style={{ border: 0 }}

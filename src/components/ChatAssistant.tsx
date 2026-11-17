@@ -21,9 +21,19 @@ import {
   ExternalLink,
   Trash2,
   Zap,
+  Sun,
+  Languages,
+  Check,
+  X,
 } from 'lucide-react';
+import mamaGPortrait from '../assets/images/mama_g_portrait_1792645422205.jpg';
 import { ChatMessage, SupportedLanguage, UserContext, TriageSeverity } from '../types';
 import { EMERGENCY_RED_FLAGS } from '../data/clinicalKnowledge';
+import {
+  CLIMATE_RISK_FACTORS,
+  ClimateRiskFactorId,
+  checkClimateChatFallback,
+} from '../data/climateTriageEngine';
 import { UI_TRANSLATIONS } from '../data/translations';
 import { LiveVoiceCallModal } from './LiveVoiceCallModal';
 
@@ -71,13 +81,21 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
   const [useSearchGrounding, setUseSearchGrounding] = useState<boolean>(false);
   const [useMapsGrounding, setUseMapsGrounding] = useState<boolean>(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [climateRisks, setClimateRisks] = useState<ClimateRiskFactorId[]>([
+    'extreme_ambient_heat',
+    'peak_mosquito_vector_season',
+  ]);
+  const [ibibioMode, setIbibioMode] = useState<boolean>(false);
+  const [confirmClear, setConfirmClear] = useState<boolean>(false);
 
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
   const [isLiveCallOpen, setIsLiveCallOpen] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+  const shouldKeepListeningRef = useRef<boolean>(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -130,7 +148,19 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
     Yoruba: 'yo-NG',
   };
 
-  // Speech-to-text setup using Web Speech API
+  // Recording duration timer for hands-free dictation
+  useEffect(() => {
+    if (!isListening) {
+      setRecordingSeconds(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setRecordingSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isListening]);
+
+  // Speech-to-text setup using Web Speech API (hands-free continuous symptom recorder)
   useEffect(() => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -138,12 +168,12 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
       recognition.lang = speechLocaleMap[language] || 'en-US';
 
       recognition.onstart = () => {
         setIsListening(true);
         setSpeechError(null);
-        setInterimTranscript('');
       };
 
       recognition.onresult = (event: any) => {
@@ -158,7 +188,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           }
         }
 
-        if (final) {
+        if (final.trim()) {
           setInput((prev) => (prev ? `${prev.trim()} ${final.trim()}` : final.trim()));
           setInterimTranscript('');
         } else {
@@ -167,44 +197,87 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       };
 
       recognition.onerror = (e: any) => {
-        console.warn('Speech recognition error:', e.error);
-        if (e.error === 'not-allowed') {
-          setSpeechError('Microphone permission denied. Please allow microphone access.');
-        } else if (e.error !== 'no-speech') {
-          setSpeechError(`Voice input error: ${e.error}`);
+        console.warn('Speech recognition event:', e.error);
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          shouldKeepListeningRef.current = false;
+          setSpeechError('Microphone permission denied. Please enable microphone access in your browser settings.');
+          setIsListening(false);
+        } else if (e.error === 'audio-capture') {
+          shouldKeepListeningRef.current = false;
+          setSpeechError('No microphone detected. Check your device microphone and try again.');
+          setIsListening(false);
+        } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
+          shouldKeepListeningRef.current = false;
+          setSpeechError(`Voice input notice: ${e.error}`);
+          setIsListening(false);
         }
-        setIsListening(false);
       };
 
       recognition.onend = () => {
-        setIsListening(false);
         setInterimTranscript('');
+        if (shouldKeepListeningRef.current) {
+          // Smoothly auto-restart continuous hands-free recording after silence timeout
+          try {
+            recognition.start();
+          } catch {
+            shouldKeepListeningRef.current = false;
+            setIsListening(false);
+          }
+        } else {
+          setIsListening(false);
+        }
       };
 
       recognitionRef.current = recognition;
     }
+
+    return () => {
+      shouldKeepListeningRef.current = false;
+      try {
+        recognitionRef.current?.stop();
+      } catch {}
+    };
   }, [language]);
+
+  const stopSpeechRecognition = () => {
+    shouldKeepListeningRef.current = false;
+    try {
+      recognitionRef.current?.stop();
+    } catch {}
+    setIsListening(false);
+    setInterimTranscript('');
+  };
 
   const toggleSpeechRecognition = () => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.');
+      setSpeechError(
+        'Hands-free voice-to-text (Web Speech API) is not supported on this browser. Try Chrome, Edge, or Safari, or use the Live Voice Call button above.'
+      );
       return;
     }
 
     if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
+      stopSpeechRecognition();
     } else {
       setSpeechError(null);
+      shouldKeepListeningRef.current = true;
       try {
         recognitionRef.current?.start();
       } catch (err) {
+        shouldKeepListeningRef.current = false;
         setIsListening(false);
+        setSpeechError('Could not start voice recording. Please try tapping the microphone again.');
       }
     }
+  };
+
+  const formatDuration = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
   const handleStopAudio = () => {
@@ -330,6 +403,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           useSearchGrounding,
           useMapsGrounding,
           userLocation,
+          climateRisks,
+          ibibioMode,
         }),
       });
 
@@ -361,14 +436,17 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
       console.warn('Network request failed, running offline clinical rule engine fallback:', err);
-      const offlineReply = checkOfflineTriage(prompt) || `💬 **Mama-G Offline Support:**\n\nYou are currently browsing offline. For pregnancy, please continue daily iron/folic acid, drink plenty of safe water, and sleep under a treated net.\n\nIf you have any severe symptoms (vaginal bleeding, severe headache with blurred vision, high fever, or baby not kicking), go directly to your nearest health centre.`;
+      const offlineReply =
+        checkClimateChatFallback(prompt, climateRisks, ibibioMode) ||
+        checkOfflineTriage(prompt) ||
+        `💬 **Mama-G Offline Support:**\n\nYou are currently browsing offline. For pregnancy, please continue daily iron/folic acid, drink plenty of safe water, and sleep under a treated net.\n\nIf you have any severe symptoms (vaginal bleeding, severe headache with blurred vision, high fever, or baby not kicking), go directly to your nearest health centre.`;
 
       const assistantMsg: ChatMessage = {
         id: `asst-offline-${Date.now()}`,
         role: 'assistant',
         content: offlineReply,
         timestamp: Date.now(),
-        severity: offlineReply.includes('🚨') ? 'EMERGENCY' : 'ROUTINE',
+        severity: offlineReply.includes('🚨') ? 'EMERGENCY' : offlineReply.includes('⚠️') ? 'URGENT' : 'ROUTINE',
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } finally {
@@ -406,13 +484,9 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         <div className="flex items-center gap-3">
           <div className="relative">
             <img
-              src="/src/assets/images/mama_g_portrait_1792645422205.jpg"
+              src={mamaGPortrait}
               alt="Mama-G Mentor"
               className="w-12 h-12 rounded-full object-cover border-2 border-amber-500 shadow-sm"
-              onError={(e) => {
-                // Fallback avatar container
-                (e.target as HTMLElement).style.display = 'none';
-              }}
             />
             <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-stone-900 absolute -bottom-0.5 -right-0.5" />
           </div>
@@ -605,29 +679,85 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
             <span>Maps Grounding</span>
           </button>
 
-          {/* Clear Chat History */}
+          {/* Climate-Induced Health Screening Toggles */}
           <button
             type="button"
-            onClick={() => {
-              if (window.confirm('Clear conversation history?')) {
-                setMessages([
-                  {
-                    id: 'welcome',
-                    role: 'assistant',
-                    content: `### ${t.assistantWelcomeTitle}\n\n${t.assistantWelcomeBody}`,
-                    timestamp: Date.now(),
-                    severity: 'ROUTINE',
-                    modelUsed: selectedModel,
-                  },
-                ]);
-                localStorage.removeItem('mama_g_chat_history');
-              }
-            }}
-            className="p-1.5 rounded-lg bg-stone-800 hover:bg-stone-750 text-stone-400 hover:text-rose-400 border border-stone-700 transition-colors cursor-pointer"
-            title="Clear Chat History"
+            onClick={() =>
+              setClimateRisks((prev) =>
+                prev.includes('extreme_ambient_heat')
+                  ? prev.filter((r) => r !== 'extreme_ambient_heat')
+                  : [...prev, 'extreme_ambient_heat']
+              )
+            }
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 border transition-colors cursor-pointer ${
+              climateRisks.includes('extreme_ambient_heat')
+                ? 'bg-amber-600/25 text-amber-200 border-amber-500/50'
+                : 'bg-stone-800 text-stone-400 border-stone-700 hover:text-stone-200'
+            }`}
+            title="Enable Extreme Heat Stress & Gestational Hypertension clinical screening"
           >
-            <Trash2 className="w-3.5 h-3.5" />
+            <Sun className="w-3 h-3 text-amber-400" />
+            <span>Heat/Malaria Screen</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setIbibioMode((prev) => !prev)}
+            className={`px-2 py-1 rounded-lg text-[11px] font-semibold flex items-center gap-1 border transition-colors cursor-pointer ${
+              ibibioMode
+                ? 'bg-amber-500 text-stone-950 border-amber-400 font-bold'
+                : 'bg-stone-800 text-stone-400 border-stone-700 hover:text-stone-200'
+            }`}
+            title="Include Ibibio / Lower Cross clinical idioms (Idem kpon̄ ut mama?, Utọdọn̄)"
+          >
+            <Languages className="w-3 h-3" />
+            <span>Ibibio Idioms</span>
+          </button>
+
+          {/* Clear Chat History (Inline 2-Step Confirm, No blocking window.confirm) */}
+          {confirmClear ? (
+            <div className="flex items-center gap-1 bg-rose-950/90 border border-rose-500/50 rounded-lg px-2 py-1 text-[11px]">
+              <span className="text-rose-200 font-semibold">Clear?</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setMessages([
+                    {
+                      id: 'welcome',
+                      role: 'assistant',
+                      content: `### ${t.assistantWelcomeTitle}\n\n${t.assistantWelcomeBody}`,
+                      timestamp: Date.now(),
+                      severity: 'ROUTINE',
+                      modelUsed: selectedModel,
+                    },
+                  ]);
+                  localStorage.removeItem('mama_g_chat_history');
+                  setConfirmClear(false);
+                }}
+                className="text-emerald-300 hover:text-white font-bold px-1 cursor-pointer"
+                title="Confirm Clear History"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                className="text-stone-400 hover:text-white px-0.5 cursor-pointer"
+                title="Cancel"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmClear(true)}
+              className="p-1.5 rounded-lg bg-stone-800 hover:bg-stone-750 text-stone-400 hover:text-rose-400 border border-stone-700 transition-colors cursor-pointer"
+              title="Clear Chat History"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -852,28 +982,75 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         </div>
       )}
 
-      {/* Live Voice Recording Status & Interim Preview */}
+      {/* Live Hands-Free Voice-to-Text Symptom Recording Bar */}
       {isListening && (
-        <div className="mb-2 bg-rose-950/90 border border-rose-500/60 rounded-xl p-3 text-xs text-rose-200 shadow-md animate-in fade-in duration-200">
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-2 font-bold text-rose-300">
+        <div className="mb-2 bg-rose-950/90 border border-rose-500/70 rounded-2xl p-3 sm:p-3.5 text-xs text-rose-100 shadow-lg animate-fade-in">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2 font-bold text-rose-200">
               <span className="relative flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
               </span>
-              <span>{t.speechListening}</span>
+              <span>🎙️ Hands-Free Symptom Recording</span>
+              <span className="font-mono text-[11px] px-2 py-0.5 rounded-full bg-rose-900/90 border border-rose-500/40 text-rose-200">
+                {formatDuration(recordingSeconds)}
+              </span>
+              {/* Visual Equalizer */}
+              <div className="hidden sm:flex items-end gap-0.5 h-3.5 ml-1" aria-hidden="true">
+                <span className="w-1 h-2 bg-rose-400 rounded-full animate-pulse" />
+                <span className="w-1 h-3.5 bg-amber-400 rounded-full animate-bounce" />
+                <span className="w-1 h-2.5 bg-rose-400 rounded-full animate-pulse" />
+                <span className="w-1 h-3 bg-amber-300 rounded-full animate-bounce" />
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={toggleSpeechRecognition}
-              className="px-2.5 py-1 bg-rose-700 hover:bg-rose-600 text-white font-semibold rounded-lg text-[11px] transition-colors"
-            >
-              {t.doneSpeaking}
-            </button>
+
+            <div className="flex items-center gap-1.5">
+              {(input || interimTranscript) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInput('');
+                    setInterimTranscript('');
+                  }}
+                  className="px-2.5 py-1 bg-stone-900/80 hover:bg-stone-800 text-stone-300 rounded-lg text-[11px] font-semibold border border-stone-700 cursor-pointer"
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={stopSpeechRecognition}
+                className="px-2.5 py-1 bg-stone-800 hover:bg-stone-700 text-white font-semibold rounded-lg text-[11px] border border-stone-600 transition-colors cursor-pointer"
+              >
+                {t.doneSpeaking || 'Stop'}
+              </button>
+              {(input.trim() || interimTranscript.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = `${input} ${interimTranscript}`.trim();
+                    stopSpeechRecognition();
+                    if (text) handleSendMessage(text);
+                  }}
+                  className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold rounded-lg text-[11px] transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Send Symptoms</span>
+                </button>
+              )}
+            </div>
           </div>
-          <p className="text-stone-300 italic text-xs min-h-[1.25rem]">
-            {interimTranscript || input || 'Listening... Speak clearly into your device.'}
-          </p>
+
+          <div className="bg-black/30 border border-rose-500/30 rounded-xl p-2.5 text-stone-100 text-xs min-h-[2rem]">
+            {input && <span>{input} </span>}
+            {interimTranscript ? (
+              <span className="text-amber-300 italic">{interimTranscript}</span>
+            ) : !input ? (
+              <span className="text-stone-400 italic">
+                Speak your symptoms naturally (e.g., "I have severe headache and blurred vision in this heat", "My baby is kicking less")...
+              </span>
+            ) : null}
+          </div>
         </div>
       )}
 
@@ -883,7 +1060,7 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           <span>{speechError}</span>
           <button
             onClick={() => setSpeechError(null)}
-            className="text-amber-400 hover:text-white font-bold ml-2 text-xs"
+            className="text-amber-400 hover:text-white font-bold ml-2 text-xs cursor-pointer"
           >
             Dismiss
           </button>
@@ -895,35 +1072,38 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            const combined = `${input} ${interimTranscript}`.trim();
             if (isListening) {
-              toggleSpeechRecognition();
+              stopSpeechRecognition();
             }
-            handleSendMessage();
+            handleSendMessage(combined || undefined);
           }}
           className="flex items-center gap-2"
         >
-          {/* Speech-to-text dictation button */}
+          {/* Hands-Free Voice-to-Text Symptom Recorder Button */}
           <button
             type="button"
             onClick={toggleSpeechRecognition}
-            className={`p-2.5 rounded-xl transition-all shrink-0 ${
+            className={`px-3 py-2.5 rounded-xl transition-all shrink-0 flex items-center gap-1.5 text-xs font-bold cursor-pointer ${
               isListening
                 ? 'bg-rose-600 text-white ring-2 ring-rose-400 animate-pulse'
-                : 'bg-stone-800 hover:bg-stone-700 text-stone-300'
+                : 'bg-stone-800 hover:bg-stone-700 text-amber-300 border border-stone-700/80'
             }`}
-            title={isListening ? 'Listening... click to stop' : 'Speak your question (Web Speech Voice Input)'}
+            title={isListening ? 'Recording symptoms... click to stop' : 'Record symptoms hands-free (Voice-to-Text)'}
+            aria-label={isListening ? 'Stop voice recording' : 'Record symptoms hands-free'}
           >
-            {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5 text-amber-400" />}
+            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-amber-400" />}
+            <span className="hidden sm:inline">{isListening ? 'Stop Voice' : 'Record Voice'}</span>
           </button>
 
           {/* Text Input Field */}
           <input
             type="text"
-            value={input}
+            value={isListening && interimTranscript ? `${input ? input + ' ' : ''}${interimTranscript}` : input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
               isListening
-                ? 'Listening to your voice... Speak now...'
+                ? 'Listening hands-free... Speak your symptoms...'
                 : t.askPlaceholder
             }
             className="flex-1 bg-stone-800/80 text-stone-100 placeholder-stone-500 text-sm px-4 py-2.5 rounded-xl border border-stone-700/80 focus:outline-none focus:border-amber-500"
@@ -933,8 +1113,8 @@ export const ChatAssistant: React.FC<ChatAssistantProps> = ({
           {/* Send Button */}
           <button
             type="submit"
-            disabled={!input.trim() || isLoading}
-            className="p-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:hover:bg-amber-500 text-stone-950 font-bold rounded-xl transition-colors shrink-0"
+            disabled={(!input.trim() && !interimTranscript.trim()) || isLoading}
+            className="p-2.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:hover:bg-amber-500 text-stone-950 font-bold rounded-xl transition-colors shrink-0 cursor-pointer"
             title="Send Message"
           >
             <Send className="w-5 h-5" />

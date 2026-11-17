@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  mamag-edge-node:
+    image: ghcr.io/mamag/edge-node:latest
+    container_name: mamag_field_tablet_secure
+    restart: unless-stopped
+    env_file:
+      - ./config/tablet.env.production
+    environment:
+      - DB_PATH=/app/data/mamag_field_node.db
+      - SECRETS_RUNTIME_DIR=/dev/shm/mamag_runtime_secrets
+    volumes:
+      - mamag_edge_data:/app/data
+    tmpfs:
+      - /dev/shm:size=16M # Volatile RAM storage for decrypted runtime secrets
+    networks:
+      - edge_secure_internal
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sqlite3; conn = sqlite3.connect('/app/data/mamag_field_node.db'); conn.execute('SELECT 1'); conn.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  mamag_edge_data:
+    driver: local
+
+networks:
+  edge_secure_internal:
+    driver: bridge

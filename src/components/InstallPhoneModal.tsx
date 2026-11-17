@@ -144,14 +144,14 @@ export const InstallPhoneModal: React.FC<InstallPhoneModalProps> = ({
               🌺
             </div>
             <div>
-              <h2 id="install-modal-title" className="text-lg sm:text-xl font-extrabold text-white leading-tight flex items-center gap-2">
+              <h2 id="install-modal-title" className="text-lg sm:text-xl font-extrabold text-white leading-tight flex items-center gap-2 flex-wrap">
                 <span>Install Mama-G</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-semibold">
-                  {isDesktop ? 'Laptop & PC App' : 'Mobile Phone App'}
+                  Android · iOS · Laptop / PC
                 </span>
               </h2>
               <p className="text-xs text-amber-200/90 font-medium mt-0.5">
-                100% Free · Works Offline · Standalone Desktop & Phone App
+                100% Free · Works Offline · Install on Android, iPhone (iOS) & Desktop
               </p>
             </div>
           </div>
@@ -174,7 +174,7 @@ export const InstallPhoneModal: React.FC<InstallPhoneModalProps> = ({
                 <div>
                   <span className="font-bold text-white">Preview Frame Detected:</span>
                   <p className="text-stone-300 text-[11px] mt-0.5">
-                    Web browsers require a direct top-level window to install desktop apps onto your taskbar or dock.
+                    Web browsers require a direct top-level window to install apps onto your phone home screen or desktop taskbar.
                   </p>
                 </div>
               </div>
@@ -199,7 +199,7 @@ export const InstallPhoneModal: React.FC<InstallPhoneModalProps> = ({
                     <span>Instant 1-Click {isDesktop ? 'Laptop' : 'Phone'} Install Ready</span>
                   </div>
                   <p className="text-xs text-stone-200">
-                    Your browser has prepared Mama-G for direct installation. Click below to install directly to your {isDesktop ? 'desktop taskbar / dock' : 'phone home screen'}.
+                    Your browser has prepared Mama-G for direct installation. Click below to install directly to your {isDesktop ? 'desktop taskbar / dock' : 'Android or iOS home screen'}.
                   </p>
                 </div>
               </div>
@@ -242,18 +242,6 @@ export const InstallPhoneModal: React.FC<InstallPhoneModalProps> = ({
             <div className="flex rounded-xl bg-stone-800 p-1 border border-stone-700 overflow-x-auto no-scrollbar gap-1">
               <button
                 type="button"
-                onClick={() => setActivePlatform('laptop')}
-                className={`flex-1 py-2 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                  activePlatform === 'laptop'
-                    ? 'bg-amber-500 text-stone-950 shadow-sm'
-                    : 'text-stone-300 hover:text-white'
-                }`}
-              >
-                <Laptop className="w-3.5 h-3.5" />
-                <span>💻 Laptop / PC</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setActivePlatform('android')}
                 className={`flex-1 py-2 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
                   activePlatform === 'android'
@@ -272,7 +260,19 @@ export const InstallPhoneModal: React.FC<InstallPhoneModalProps> = ({
                     : 'text-stone-300 hover:text-white'
                 }`}
               >
-                <span>🍎 iPhone</span>
+                <span>🍎 iPhone / iOS</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePlatform('laptop')}
+                className={`flex-1 py-2 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                  activePlatform === 'laptop'
+                    ? 'bg-amber-500 text-stone-950 shadow-sm'
+                    : 'text-stone-300 hover:text-white'
+                }`}
+              >
+                <Laptop className="w-3.5 h-3.5" />
+                <span>💻 Laptop / PC</span>
               </button>
               <button
                 type="button"
@@ -282,10 +282,10 @@ export const InstallPhoneModal: React.FC<InstallPhoneModalProps> = ({
                     ? 'bg-amber-500 text-stone-950 shadow-sm'
                     : 'text-stone-300 hover:text-white'
                 }`}
-                title="Scan QR Code to open on phone"
+                title="Scan QR Code to open on Android or iPhone"
               >
                 <QrCode className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">QR Code</span>
+                <span className="hidden sm:inline">Phone QR</span>
               </button>
             </div>
 

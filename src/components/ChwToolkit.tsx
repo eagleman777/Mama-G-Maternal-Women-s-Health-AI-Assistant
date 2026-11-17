@@ -8,13 +8,30 @@ import {
   ShieldAlert,
   FileText,
   UserCheck,
+  BookOpen,
+  Download,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { CHW_PROTOCOLS } from '../data/clinicalKnowledge';
+import { EdgeSqliteSyncPanel } from './EdgeSqliteSyncPanel';
+import { MamaGOTAUpdatePanel } from './MamaGOTAUpdatePanel';
+import { MamaGSecurityVaultPanel } from './MamaGSecurityVaultPanel';
+import { getOrCreateDeviceId } from '../data/edgeSqliteStore';
+
+const DEPLOYMENT_MANUAL_PDF_PATH =
+  '/assets/aistudio/Mama-G_Field_Tablet_Deployment___Operations_Manual_f423f051.pdf';
+const QUICK_REFERENCE_PDF_PATH =
+  '/assets/aistudio/Mama-G_CHW_Field_Quick-Reference_Guide_d25316e5.pdf';
 
 export const ChwToolkit: React.FC = () => {
   const [selectedProtocolId, setSelectedProtocolId] = useState<string>(CHW_PROTOCOLS[0].id);
   const [completedSteps, setCompletedSteps] = useState<Record<string, number[]>>({});
   const [patientNotes, setPatientNotes] = useState<string>('');
+  const [showQuickRefGuide, setShowQuickRefGuide] = useState<boolean>(true);
+  const [showQuickRefPdf, setShowQuickRefPdf] = useState<boolean>(false);
+  const [showDeploymentManual, setShowDeploymentManual] = useState<boolean>(true);
+  const [showEmbeddedPdf, setShowEmbeddedPdf] = useState<boolean>(false);
 
   const currentProtocol =
     CHW_PROTOCOLS.find((p) => p.id === selectedProtocolId) || CHW_PROTOCOLS[0];
@@ -52,13 +69,31 @@ export const ChwToolkit: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={handlePrint}
-          className="no-print self-start md:self-auto px-4 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors shrink-0"
-        >
-          <Printer className="w-4 h-4 text-amber-400" />
-          <span>Print Protocol Checklist</span>
-        </button>
+        <div className="no-print flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+          <a
+            href={QUICK_REFERENCE_PDF_PATH}
+            download="Mama-G_CHW_Field_Quick-Reference_Guide.pdf"
+            className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors shadow-sm"
+          >
+            <Download className="w-4 h-4" />
+            <span>CHW Quick-Ref (PDF)</span>
+          </a>
+          <a
+            href={DEPLOYMENT_MANUAL_PDF_PATH}
+            download="Mama-G_Field_Tablet_Deployment_Operations_Manual.pdf"
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 transition-colors shadow-sm"
+          >
+            <Download className="w-4 h-4" />
+            <span>Field Manual (PDF)</span>
+          </a>
+          <button
+            onClick={handlePrint}
+            className="px-4 py-2 bg-stone-800 hover:bg-stone-700 text-stone-200 border border-stone-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+          >
+            <Printer className="w-4 h-4 text-amber-400" />
+            <span>Print Protocol Checklist</span>
+          </button>
+        </div>
       </div>
 
       {/* Protocol Selection Tabs */}
@@ -187,6 +222,191 @@ export const ChwToolkit: React.FC = () => {
               Oxytocin (10 IU IM) requires 2°C–8°C refrigeration. If cold chain is broken or unavailable in remote communities, use Misoprostol (600–800 mcg orally or sublingually), which remains stable at ambient tropical temperatures.
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* Edge Field Tablet SQLite Cache, OTA & Zero-Trust Secret Vault */}
+      <div className="no-print space-y-6">
+        <EdgeSqliteSyncPanel />
+        <MamaGOTAUpdatePanel deviceId={getOrCreateDeviceId()} hubApiUrl="" />
+        <MamaGSecurityVaultPanel deviceId={getOrCreateDeviceId()} />
+
+        {/* CHW Field Quick-Reference Guide (1-Page Laminated Cheat Sheet) */}
+        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-6 space-y-4 shadow-md">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800 pb-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-sky-400">
+                <ClipboardList className="w-4 h-4" />
+                <span>Operational Cheat Sheet • Ibeno, Mbo &amp; Uyo Health Outposts (v1.0.0)</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                Mama-G Community Health Worker (CHW) Quick-Reference Guide
+              </h3>
+              <p className="text-xs text-stone-400">
+                1-page laminated outpost station guide covering triage startup, bilingual audio playback ([ibb]/[ibn]), Level 1–3 climate severity actions, offline encounter logging, and sync telemetry.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowQuickRefGuide(true);
+                  setShowQuickRefPdf((prev) => !prev);
+                }}
+                className="px-3.5 py-2 bg-sky-500 hover:bg-sky-400 text-stone-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>{showQuickRefPdf ? 'Hide PDF Reader' : 'Read Guide Inline'}</span>
+              </button>
+              <a
+                href={QUICK_REFERENCE_PDF_PATH}
+                download="Mama-G_CHW_Field_Quick-Reference_Guide.pdf"
+                className="px-3.5 py-2 bg-stone-800 hover:bg-stone-700 text-sky-300 border border-sky-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download PDF</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setShowQuickRefGuide((prev) => !prev)}
+                className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 cursor-pointer"
+                aria-label="Toggle CHW quick-reference summary"
+              >
+                {showQuickRefGuide ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {showQuickRefGuide && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3.5 space-y-1">
+                  <span className="text-[11px] font-bold text-sky-400 uppercase block">
+                    1–2 · Triage Session &amp; Bilingual Audio
+                  </span>
+                  <p className="text-stone-300 leading-relaxed">
+                    Select patient age group &amp; trimester, toggle <strong>English</strong>, <strong>Ibibio [ibb]</strong>, or <strong>Ibeno [ibn]</strong>, and tap the Speaker Icon for synthesized native audio verification.
+                  </p>
+                </div>
+                <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3.5 space-y-1">
+                  <span className="text-[11px] font-bold text-rose-400 uppercase block">
+                    3 · Triage Severity &amp; Climate Flags
+                  </span>
+                  <p className="text-stone-300 leading-relaxed">
+                    <strong>Level 1 Emergency:</strong> Immediate cooling, BP &amp; referral. <strong>Level 2 Urgent:</strong> RDT, ACT or ORS packets. <strong>Level 3 Standard:</strong> Counseling &amp; follow-up.
+                  </p>
+                </div>
+                <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3.5 space-y-1 md:col-span-2 lg:col-span-1">
+                  <span className="text-[11px] font-bold text-emerald-400 uppercase block">
+                    4–5 · Offline Encounters &amp; Sync
+                  </span>
+                  <p className="text-stone-300 leading-relaxed">
+                    Completed triages save offline with an <code className="font-mono text-emerald-300">encounter_id</code> badge (<code className="font-mono text-amber-300">status: pending</code>) and auto-sync to Uyo via <code className="font-mono text-sky-300">/api/edge-sync</code> or <strong>Force Manual Sync</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {showQuickRefPdf && (
+                <div className="rounded-xl overflow-hidden border border-stone-700 bg-stone-950 h-[560px]">
+                  <iframe
+                    src={QUICK_REFERENCE_PDF_PATH}
+                    title="Mama-G CHW Field Quick-Reference Guide"
+                    className="w-full h-full border-0"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Field Tablet Deployment & Operations Manual Card */}
+        <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-6 space-y-4 shadow-md">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-800 pb-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-400">
+                <BookOpen className="w-4 h-4" />
+                <span>Standard Operating Procedure (Ibeno, Mbo &amp; Uyo LGAs)</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                Mama-G Field Tablet Deployment &amp; Operations Manual
+              </h3>
+              <p className="text-xs text-stone-400">
+                2-page step-by-step field technician guide covering Linux/Docker tablet setup, cryptographic vault provisioning, SQLite WAL verification, and Emergency Rollback SOP.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeploymentManual(true);
+                  setShowEmbeddedPdf((prev) => !prev);
+                }}
+                className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-stone-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                <span>{showEmbeddedPdf ? 'Hide PDF Reader' : 'Read Manual Inline'}</span>
+              </button>
+              <a
+                href={DEPLOYMENT_MANUAL_PDF_PATH}
+                download="Mama-G_Field_Tablet_Deployment_Operations_Manual.pdf"
+                className="px-3.5 py-2 bg-stone-800 hover:bg-stone-700 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download PDF</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setShowDeploymentManual((prev) => !prev)}
+                className="p-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 border border-stone-700 cursor-pointer"
+                aria-label="Toggle deployment manual summary"
+              >
+                {showDeploymentManual ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {showDeploymentManual && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3.5 space-y-1">
+                  <span className="text-[11px] font-bold text-amber-400 uppercase block">
+                    Step 1–2 · Provisioning
+                  </span>
+                  <p className="text-stone-300 leading-relaxed">
+                    Verify Linux/Docker runtime and execute <code className="font-mono text-emerald-300">sudo ./install_mamag_edge.sh</code> with Device ID, LGA, Hub URL, Master Passphrase, and Auth Token.
+                  </p>
+                </div>
+                <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3.5 space-y-1">
+                  <span className="text-[11px] font-bold text-emerald-400 uppercase block">
+                    Step 3 · Verify Container &amp; WAL
+                  </span>
+                  <p className="text-stone-300 leading-relaxed">
+                    Run <code className="font-mono text-sky-300">docker ps</code> &amp; <code className="font-mono text-sky-300">docker logs mamag_field_tablet_secure</code> and inspect cached climate rules in this console prior to dispatch.
+                  </p>
+                </div>
+                <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3.5 space-y-1">
+                  <span className="text-[11px] font-bold text-rose-400 uppercase block">
+                    Maintenance &amp; Emergency SOP
+                  </span>
+                  <p className="text-stone-300 leading-relaxed">
+                    Charge immediately if battery drops below 15%. For severe sync/runtime errors, trigger <strong>Emergency Rollback</strong> in the OTA panel or contact the Uyo support desk.
+                  </p>
+                </div>
+              </div>
+
+              {showEmbeddedPdf && (
+                <div className="rounded-xl overflow-hidden border border-stone-700 bg-stone-950 h-[560px]">
+                  <iframe
+                    src={DEPLOYMENT_MANUAL_PDF_PATH}
+                    title="Mama-G Field Tablet Deployment and Operations Manual"
+                    className="w-full h-full border-0"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

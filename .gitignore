@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+data/secrets.enc
+data/secret.salt
+*.db
+*.db-wal
+*.db-shm

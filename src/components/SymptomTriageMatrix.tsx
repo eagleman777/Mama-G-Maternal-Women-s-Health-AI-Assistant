@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -15,12 +15,32 @@ import {
   Lock,
   Loader2,
   Check,
+  Sun,
+  CloudRain,
+  Bug,
+  Languages,
+  Volume2,
+  Database,
+  Download,
 } from 'lucide-react';
 import { StructuredTriageResult, SupportedLanguage, TriageSeverity } from '../types';
 import { EMERGENCY_RED_FLAGS } from '../data/clinicalKnowledge';
+import {
+  CLIMATE_RISK_FACTORS,
+  CLIMATE_TRIAGE_RULES,
+  IBIBIO_CLIMATE_LEXICON,
+  ClimateRiskFactorId,
+  syncClimateRulesToCache,
+  evaluateClimateTriageOffline,
+} from '../data/climateTriageEngine';
+import { recordClinicalEncounterToSqlite } from '../data/edgeSqliteStore';
+import { useMamaGPronunciation } from '../utils/useMamaGPronunciation';
 import { WomenAilmentsSection } from './WomenAilmentsSection';
 import { useCrypto } from '../context/CryptoContext';
 import { NotarizedHealthReceipt } from '../utils/crypto';
+
+const QUICK_REFERENCE_PDF_PATH =
+  '/assets/aistudio/Mama-G_CHW_Field_Quick-Reference_Guide_d25316e5.pdf';
 
 interface SymptomTriageMatrixProps {
   language: SupportedLanguage;
@@ -49,13 +69,49 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
   const [bpDiastolic, setBpDiastolic] = useState<string>('');
   const [temperature, setTemperature] = useState<string>('');
   const [customNote, setCustomNote] = useState<string>('');
+  const [activeClimateRisks, setActiveClimateRisks] = useState<ClimateRiskFactorId[]>([
+    'extreme_ambient_heat',
+    'peak_mosquito_vector_season',
+  ]);
+  const [ibibioMode, setIbibioMode] = useState<boolean>(false);
+  const [showClimateLexicon, setShowClimateLexicon] = useState<boolean>(false);
+  const [cacheSource, setCacheSource] = useState<'indexeddb' | 'localstorage' | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [result, setResult] = useState<StructuredTriageResult | null>(null);
+  const [savedEncounterId, setSavedEncounterId] = useState<string | null>(null);
 
   // Algorand cryptographic notarization hook
   const { notarizeHealthRecord, isNotarizing } = useCrypto();
   const [notarizedReceipt, setNotarizedReceipt] = useState<NotarizedHealthReceipt | null>(null);
+
+  const {
+    playPronunciation,
+    stopPronunciation,
+    isPlaying: isPronunciationPlaying,
+    activeTerm: activePronunciationTerm,
+  } = useMamaGPronunciation();
+
+  useEffect(() => {
+    syncClimateRulesToCache().then((res) => {
+      setCacheSource(res.source);
+    });
+  }, []);
+
+  const handleToggleClimateRisk = (riskId: ClimateRiskFactorId) => {
+    setActiveClimateRisks((prev) =>
+      prev.includes(riskId) ? prev.filter((r) => r !== riskId) : [...prev, riskId]
+    );
+  };
+
+  const handleSpeakPhrase = (text: string) => {
+    if (isPronunciationPlaying && activePronunciationTerm === text) {
+      stopPronunciation();
+    } else {
+      playPronunciation(text, 'ibb');
+    }
+  };
 
   const handleAnchorTriage = async () => {
     if (!result) return;
@@ -137,6 +193,24 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
       description: 'Baby has passed stool in womb; fetal distress',
     },
     {
+      id: 'severe_malaria_signs',
+      label: 'Fever with yellowing eyes (jaundice), dark urine, extreme lethargy, or unable to keep fluids down',
+      category: 'danger',
+      description: 'Climate Vector Rule Set B (Level 1): Suspected Severe Malaria in Pregnancy',
+    },
+    {
+      id: 'heat_stress_exhaustion',
+      label: 'Dizziness, excessive fatigue, or mild dehydration during extreme heat / high humidity',
+      category: 'urgent',
+      description: 'Climate Heat Rule Set A (Level 2): Heat Stress Risk (Idem kpon̄ ut mama?)',
+    },
+    {
+      id: 'flood_waterborne',
+      label: 'Acute watery diarrhea or stomach cramps after flooding / borehole contamination',
+      category: 'urgent',
+      description: 'Climate Flood Risk: Post-flood water-borne dehydration hazard',
+    },
+    {
       id: 'painful_urination',
       label: 'Burning pain or frequency during urination',
       category: 'urgent',
@@ -188,6 +262,20 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
     const isBpSevere = Number(bpSystolic) >= 160 || Number(bpDiastolic) >= 110;
     const isFever = Number(temperature) >= 38.0;
 
+    // 1. Evaluate Climate-Induced Health Threats (Rule Set A & B) offline cache first
+    const climateEvaluation = evaluateClimateTriageOffline({
+      selectedSymptoms,
+      bpSystolic: Number(bpSystolic) || 0,
+      bpDiastolic: Number(bpDiastolic) || 0,
+      temperature: Number(temperature) || 0,
+      customNote,
+      climateRisks: activeClimateRisks,
+      ibibioMode,
+    });
+    if (climateEvaluation) {
+      return climateEvaluation;
+    }
+
     const hasRedFlagSymptom = selectedSymptoms.some(
       (s) =>
         s.includes('headache') ||
@@ -198,7 +286,8 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
         s.includes('Heavy bleeding') ||
         s.includes('Foul-smelling') ||
         s.includes('Fits') ||
-        s.includes('green')
+        s.includes('green') ||
+        s.includes('jaundice')
     );
 
     if (hasRedFlagSymptom || isBpSevere) {
@@ -308,13 +397,16 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
 
   const handleRunTriage = async () => {
     if (selectedSymptoms.length === 0 && !customNote && !bpSystolic && !temperature) {
-      alert('Please select at least one symptom or enter your vitals to evaluate.');
+      setFormError('Please select at least one symptom or enter vitals (e.g. BP / Temperature) to evaluate.');
       return;
     }
 
+    setFormError(null);
     setIsLoading(true);
     setResult(null);
+    setSavedEncounterId(null);
 
+    let resolvedResult: StructuredTriageResult;
     try {
       const response = await fetch('/api/triage', {
         method: 'POST',
@@ -324,6 +416,8 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
           pregnancyStatus: patientType,
           gestationWeeks: patientType === 'pregnant' ? gestationWeeks : undefined,
           postpartumDays: patientType === 'postpartum' ? postpartumDays : undefined,
+          climateRisks: activeClimateRisks,
+          ibibioMode,
           vitals: {
             bp: bpSystolic && bpDiastolic ? `${bpSystolic}/${bpDiastolic}` : undefined,
             temperature: temperature ? `${temperature}°C` : undefined,
@@ -337,15 +431,54 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
         throw new Error('API request failed');
       }
 
-      const data = await response.json();
-      setResult(data);
+      resolvedResult = await response.json();
     } catch (err) {
       console.warn('Falling back to local WHO triage rule engine:', err);
-      const fallbackResult = runLocalOfflineTriage();
-      setResult(fallbackResult);
+      resolvedResult = runLocalOfflineTriage();
     } finally {
       setIsLoading(false);
     }
+
+    setResult(resolvedResult);
+
+    // Record anonymized clinical encounter into offline edge SQLite store
+    try {
+      const severityNum: 1 | 2 | 3 =
+        resolvedResult.severity === 'EMERGENCY' ? 1 : resolvedResult.severity === 'URGENT' ? 2 : 3;
+      const ageGroup =
+        patientType === 'pregnant'
+          ? gestationWeeks <= 12
+            ? 'pregnant_trimester_1'
+            : gestationWeeks <= 26
+            ? 'pregnant_trimester_2'
+            : 'pregnant_trimester_3'
+          : patientType === 'postpartum'
+          ? 'postpartum'
+          : 'non_pregnant';
+      const headlineLower = resolvedResult.headline.toLowerCase();
+      const matchedRuleId = headlineLower.includes('severe vector-borne')
+        ? 'severe_malaria_level_1'
+        : headlineLower.includes('level 1 heat stress')
+        ? 'heat_hypertension_level_1'
+        : headlineLower.includes('vector-borne fever')
+        ? 'uncomplicated_malaria_level_2'
+        : headlineLower.includes('level 2 extreme heat')
+        ? 'heat_stress_level_2'
+        : headlineLower.includes('water-borne')
+        ? 'waterborne_flood_risk'
+        : resolvedResult.severity === 'EMERGENCY'
+        ? 'obstetric_preeclampsia_redflag'
+        : null;
+
+      const enc = await recordClinicalEncounterToSqlite({
+        patientAgeGroup: ageGroup,
+        climateRiskFlagged: activeClimateRisks.length > 0 ? activeClimateRisks[0] : 'none',
+        matchedRuleId,
+        severityTriggered: severityNum,
+        actionTaken: resolvedResult.immediateActions?.[0] || resolvedResult.headline,
+      });
+      setSavedEncounterId(enc.encounter_id);
+    } catch {}
   };
 
   return (
@@ -364,7 +497,15 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
             Evaluate reported symptoms in seconds to distinguish between normal physiological changes, urgent infections, and life-threatening obstetric emergencies.
           </p>
         </div>
-        <div className="shrink-0 flex items-center gap-2">
+        <div className="shrink-0 flex flex-wrap items-center gap-2">
+          <a
+            href={QUICK_REFERENCE_PDF_PATH}
+            download="Mama-G_CHW_Field_Quick-Reference_Guide.pdf"
+            className="px-3 py-2 bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 rounded-xl text-xs font-semibold border border-sky-500/30 flex items-center gap-1.5 transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>CHW Quick-Ref (PDF)</span>
+          </a>
           <button
             onClick={handleReset}
             className="px-3 py-2 bg-stone-800 hover:bg-stone-700 text-stone-300 rounded-xl text-xs font-medium border border-stone-700 flex items-center gap-1.5 transition-colors"
@@ -497,6 +638,157 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
             )}
           </div>
 
+          {/* Step 1.5: Climate-Induced Health Threats Context & Ibibio / Ibeno Field Lexicon */}
+          <div className="bg-stone-900 border border-amber-500/30 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs sm:text-sm font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                  <Sun className="w-4 h-4 text-amber-400" />
+                  <span>Climate-Induced Health Threats Screening</span>
+                </h3>
+                <p className="text-[11px] text-stone-400 mt-0.5">
+                  Coastal & tropical smallholder alerts (Akwa Ibom / Lower Cross deployment mode)
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {cacheSource && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 font-mono flex items-center gap-1">
+                    <Database className="w-2.5 h-2.5" />
+                    <span>Offline Rule Cache Ready</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIbibioMode((prev) => !prev)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer flex items-center gap-1 ${
+                    ibibioMode
+                      ? 'bg-amber-500 text-stone-950 border-amber-400'
+                      : 'bg-stone-800 text-stone-300 border-stone-700 hover:text-white'
+                  }`}
+                >
+                  <Languages className="w-3.5 h-3.5" />
+                  <span>Ibibio / Ibeno Mode</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Active Environmental Risk Toggles */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              {CLIMATE_RISK_FACTORS.map((rf) => {
+                const isActive = activeClimateRisks.includes(rf.id);
+                return (
+                  <button
+                    key={rf.id}
+                    type="button"
+                    onClick={() => handleToggleClimateRisk(rf.id)}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-500/15 border-amber-500/60 text-amber-100'
+                        : 'bg-stone-950/60 border-stone-800 text-stone-400 hover:border-stone-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1 font-bold text-xs">
+                      <span>
+                        {rf.emoji} {rf.label}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={isActive}
+                        readOnly
+                        className="accent-amber-500 rounded"
+                      />
+                    </div>
+                    <p className="text-[10px] text-stone-400 mt-1 leading-snug">{rf.shortDesc}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Localized Ibibio / Ibeno Field Phrasebook Drawer Toggle */}
+            <div className="pt-1 border-t border-stone-800/80">
+              <button
+                type="button"
+                onClick={() => setShowClimateLexicon((prev) => !prev)}
+                className="text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Languages className="w-3.5 h-3.5" />
+                <span>
+                  {showClimateLexicon
+                    ? 'Hide Ibibio / Ibeno Field Phrasebook & Rule Matrix'
+                    : 'Open Offline Ibibio / Ibeno Field Phrasebook & Rule Sets (A & B)'}
+                </span>
+              </button>
+
+              {showClimateLexicon && (
+                <div className="mt-3 space-y-3 animate-fade-in">
+                  <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3 space-y-2">
+                    <div className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">
+                      Localized Field Lexicon (English ↔ Ibibio / Ibeno Context)
+                    </div>
+                    <div className="grid grid-cols-1 gap-2">
+                      {IBIBIO_CLIMATE_LEXICON.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-2.5 rounded-lg bg-stone-900 border border-stone-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-amber-300">{item.concept}:</span>
+                              <span className="text-stone-300">"{item.englishPrompt}"</span>
+                            </div>
+                            <div className="text-emerald-300 font-semibold mt-0.5">
+                              {item.ibibioEquivalent}
+                            </div>
+                            <div className="text-[10px] text-stone-400">{item.gloss}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomNote((prev) =>
+                                prev ? `${prev}; ${item.concept}: ${item.ibibioEquivalent}` : `${item.concept}: ${item.ibibioEquivalent}`
+                              );
+                              handleSpeakPhrase(item.ibibioEquivalent);
+                            }}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-1 shrink-0 cursor-pointer border transition-colors ${
+                              isPronunciationPlaying && activePronunciationTerm === item.ibibioEquivalent
+                                ? 'bg-emerald-600 text-white border-emerald-400 animate-pulse'
+                                : 'bg-stone-800 hover:bg-stone-700 text-amber-300 border-stone-700'
+                            }`}
+                          >
+                            <Volume2 className="w-3 h-3" />
+                            <span>Speak & Note</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Quick Summary of Rule Sets A & B */}
+                  <div className="bg-stone-950/80 border border-stone-800 rounded-xl p-3 space-y-2 text-[11px]">
+                    <div className="font-bold text-stone-200 uppercase tracking-wider">
+                      Offline Decision Tree Rules (Rule Set A & Rule Set B)
+                    </div>
+                    {CLIMATE_TRIAGE_RULES.map((rule) => (
+                      <div key={rule.id} className="p-2 rounded-lg bg-stone-900/80 border border-stone-800/80">
+                        <div className="flex items-center justify-between gap-2 font-bold">
+                          <span className={rule.severity === 'EMERGENCY' ? 'text-rose-400' : 'text-amber-300'}>
+                            {rule.ruleSet} — {rule.level}
+                          </span>
+                        </div>
+                        <p className="text-stone-300 mt-0.5">
+                          <strong>Triggers:</strong> {rule.triggerConditions}
+                        </p>
+                        <p className="text-emerald-300 mt-0.5">
+                          <strong>Action:</strong> {rule.action}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Step 2: Symptom Checklist */}
           <div className="bg-stone-900 border border-stone-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
             <div className="flex items-center justify-between">
@@ -604,11 +896,24 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
               />
             </div>
 
+            {formError && (
+              <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/50 text-rose-200 text-xs flex items-center justify-between">
+                <span>{formError}</span>
+                <button
+                  type="button"
+                  onClick={() => setFormError(null)}
+                  className="text-rose-300 hover:text-white font-bold ml-2"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleRunTriage}
               disabled={isLoading}
-              className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-stone-950 font-bold text-sm rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
             >
               <Activity className="w-4 h-4" />
               <span>{isLoading ? 'Evaluating Clinical Triage...' : 'Evaluate Triage Level'}</span>
@@ -725,6 +1030,18 @@ export const SymptomTriageMatrix: React.FC<SymptomTriageMatrixProps> = ({
                   {result.whenToRushToHospital}
                 </span>
               </div>
+
+              {savedEncounterId && (
+                <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    <span>Logged to Edge SQLite (<span className="font-mono">{savedEncounterId}</span>)</span>
+                  </span>
+                  <span className="font-mono text-[10px] bg-amber-900/50 text-amber-300 px-1.5 py-0.5 rounded">
+                    sync: pending
+                  </span>
+                </div>
+              )}
 
               {/* Algorand Decentralized Health Attestation */}
               <div className="bg-stone-950/90 border border-stone-800 rounded-xl p-3.5 space-y-2.5">

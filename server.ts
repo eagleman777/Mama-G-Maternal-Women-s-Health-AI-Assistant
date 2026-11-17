@@ -94,6 +94,22 @@ CRITICAL CLINICAL & TRIAGE RULES:
    3. 📋 **Practical Steps / Checklist** (Bulleted, easy to read on small screens)
    4. 🏥 **When to See a Healthcare Provider** (Specific danger signs)
    5. ⚠️ *Medical Disclaimer*
+
+8. CLIMATE-INDUCED HEALTH THREATS MODULE (Tropical & Coastal Smallholder Zones, e.g., Akwa Ibom / Lower Cross Regions):
+   In addition to standard obstetric triage, actively screen for climate-sensitive threats:
+   - RULE SET A — EXTREME HEAT STRESS & GESTATIONAL HYPERTENSION:
+     * Triggers: Extreme ambient heat/humidity or 2nd/3rd trimester dizziness, throbbing frontal headache, visual disturbances (blurring/spots), sudden facial/hand swelling.
+     * Level 1 Emergency: Headache + visual changes + upper right abdominal pain + BP >= 140/90 mmHg (or severe sudden swelling) -> Immediate emergency obstetric transport AND active cooling protocols (shaded rest, damp cloths).
+     * Level 2 Urgent: Dizziness, excessive fatigue, mild dehydration on high-heat days without HTN spikes -> Oral Rehydration Salts (ORS), mandatory relocation to shaded/ventilated area, monitor for 2 hours.
+   - RULE SET B — CLIMATE-TRIGGERED VECTOR-BORNE FEVER (MALARIA IN PREGNANCY):
+     * Triggers: Sudden onset fever, chills, rigors, body aches, or fatigue during post-flood periods or peak rainy/mosquito season.
+     * Level 1 Emergency (Severe Malaria): Fever + inability to keep fluids down, extreme lethargy, yellowing eyes (jaundice), dark urine, or severe anemia -> Immediate Malaria RDT, parenteral anti-malarials per national guidelines, urgent hospital transfer.
+     * Level 2 Standard Triage: Uncomplicated febrile illness -> Immediate RDT, prompt guideline-approved ACT, insecticide-treated bednet (ITN) counseling.
+   - WATER-BORNE POST-FLOOD RISKS: Screen for acute watery diarrhea after flooding; recommend immediate ORS, boiled/chlorinated water, and urgent clinic visit if dehydrated.
+   - IBIBIO / IBENO LOCALIZED IDIOMS: When Ibibio or Lower Cross context applies, reinforce comprehension with verified regional phrases:
+     * Extreme Heat Stress: "Idem kpon̄ ut mama? / Ekeme ndikot udim ufan̄ obio usen emi?" (Body hot too much?)
+     * Sudden Swelling: "Idem usụhọ / Isọn̄ ke ubọk ye iso" (Face and hand swelling)
+     * Vector Fever / Chills: "Utọdọn̄ / Usen ofụn̄ mîkpon̄" (Fever with shaking chills)
 `;
 
 const SYSTEM_INSTRUCTION_OLD_MAMA = `
@@ -119,9 +135,133 @@ LANGUAGE:
 If the user writes or requests Nigerian Pidgin, Swahili, French, Hausa, or Yoruba, respond fluently with authentic cultural idioms, proverbs, and grandmotherly expressions of that language!
 `;
 
-// Health check
+// In-memory Regional Hub store for edge tablet telemetry & idempotent encounter ingestion
+const hubTabletFleet = new Map<string, Record<string, any>>();
+const hubSyncedEncounters = new Map<string, Record<string, any>>();
+
+function ingestEncounterBatchIdempotent(deviceId: string, encounters: any[]) {
+  let syncedCount = 0;
+  let duplicateCount = 0;
+
+  for (const enc of encounters) {
+    const encId = enc?.encounter_id;
+    if (!encId || hubSyncedEncounters.has(encId)) {
+      duplicateCount += 1;
+      continue;
+    }
+    hubSyncedEncounters.set(encId, {
+      ...enc,
+      device_id: enc.device_id || deviceId,
+      received_at: new Date().toISOString(),
+    });
+    syncedCount += 1;
+  }
+
+  return { syncedCount, duplicateCount };
+}
+
+// Health checks
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'Mama-G Maternal Health API' });
+});
+
+app.get('/api/v1/health', (req: Request, res: Response) => {
+  res.json({
+    status: 'healthy',
+    service: 'Mama-G Regional Hub',
+    fleetCount: hubTabletFleet.size,
+    centralEncountersCount: hubSyncedEncounters.size,
+  });
+});
+
+// Regional Hub Telemetry Ingestion
+app.post('/api/v1/telemetry', (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    const deviceId = payload.device_id || 'TAB-EDGE';
+    hubTabletFleet.set(deviceId, {
+      ...payload,
+      device_id: deviceId,
+      last_heartbeat_at: new Date().toISOString(),
+    });
+    res.json({
+      status: 'success',
+      device_id: deviceId,
+      location_lga: payload.location_lga || 'Uyo',
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Telemetry ingestion failed', details: err?.message || String(err) });
+  }
+});
+
+// Regional Hub Idempotent Encounter Batch Sync
+app.post('/api/v1/encounters/sync', (req: Request, res: Response) => {
+  try {
+    const { device_id = 'TAB-EDGE', encounters = [] } = req.body || {};
+    const list = Array.isArray(encounters) ? encounters : [];
+    const { syncedCount, duplicateCount } = ingestEncounterBatchIdempotent(device_id, list);
+
+    res.json({
+      status: 'success',
+      device_id,
+      synced_count: syncedCount,
+      duplicate_count: duplicateCount,
+      total_hub_encounters: hubSyncedEncounters.size,
+      syncedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Encounter sync failed', details: err?.message || String(err) });
+  }
+});
+
+// Regional Hub Over-The-Air (OTA) Signed Release Manifest & Audit Endpoints
+const hubOtaAuditLogs: Array<Record<string, any>> = [];
+
+app.get('/api/v1/ota/manifest', (req: Request, res: Response) => {
+  const currentVersion = String(req.query.currentVersion || 'ghcr.io/mamag/edge-node:v1.2.0');
+  const latestVersion = 'ghcr.io/mamag/edge-node:v1.3.0-climate-patch';
+
+  res.json({
+    status: 'ok',
+    latestVersion,
+    currentVersion,
+    hasUpdate: currentVersion !== latestVersion,
+    sha256Digest: 'sha256:9f84b2c71a0e44d8f21e6c90b77c89b2d30f4e11',
+    signedBy: 'Mama-G Field Release Authority',
+    releaseNotes:
+      'Climate Health Extension Rule Set A/B v1.3, Ibibio/Ibeno lexicon weights & WAL sync reliability patch.',
+    publishedAt: new Date().toISOString(),
+  });
+});
+
+app.post('/api/v1/ota/audit', (req: Request, res: Response) => {
+  const entry = {
+    ...(req.body || {}),
+    recordedAt: new Date().toISOString(),
+  };
+  hubOtaAuditLogs.unshift(entry);
+  res.json({ status: 'ok', logged: entry });
+});
+
+// Edge Field Tablet SQLite Regional Hub Sync (legacy/unified bridge)
+app.post('/api/edge-sync', (req: Request, res: Response) => {
+  try {
+    const { deviceId = 'TAB-EDGE', lga = 'Uyo', pendingEncounters = [] } = req.body || {};
+    const list = Array.isArray(pendingEncounters) ? pendingEncounters : [];
+    const { syncedCount, duplicateCount } = ingestEncounterBatchIdempotent(deviceId, list);
+
+    res.json({
+      status: 'ok',
+      deviceId,
+      lga,
+      uploadedCount: syncedCount,
+      duplicateCount,
+      updatedRules: [],
+      syncedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Edge sync failed', details: err?.message || String(err) });
+  }
 });
 
 // G-Corner: Old Mama's Faith & Life Mentoring for Young Women
@@ -184,6 +324,8 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       useSearchGrounding = false,
       useMapsGrounding = false,
       userLocation,
+      climateRisks = [],
+      ibibioMode = false,
     } = req.body;
 
     if (!messages || !Array.isArray(messages)) {
@@ -198,6 +340,14 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       if (userContext.isPregnant) contextualPrompt += `[Pregnant: Week ${userContext.weeks || 'unknown'}, Trimester: ${userContext.trimester || 'unknown'}] `;
       if (userContext.isPostpartum) contextualPrompt += `[Postpartum: Day/Week ${userContext.postpartumPeriod || 'recent'}] `;
       contextualPrompt += `\n`;
+    }
+
+    if (Array.isArray(climateRisks) && climateRisks.length > 0) {
+      contextualPrompt += `[ACTIVE ENVIRONMENTAL & CLIMATE RISK FACTORS: ${climateRisks.join(', ')}. Prioritize screening for Heat Stress/Pre-eclampsia, Vector-Borne Malaria in Pregnancy, and Flood/Water-Borne Risks according to MamaG_Climate_Health_Extension v1.0.0.]\n`;
+    }
+
+    if (ibibioMode) {
+      contextualPrompt += `[IBIBIO / IBENO LINGUISTIC MODE ACTIVE: Integrate verified Lower Cross / Ibibio clinical idioms where helpful ("Idem kpon̄ ut mama?" for extreme body heat, "Idem usụhọ / Isọn̄ ke ubọk ye iso" for sudden face/hand swelling, "Utọdọn̄ / Usen ofụn̄ mîkpon̄" for vector fever with chills) alongside clear supportive guidance.]\n`;
     }
 
     if (language) {
@@ -410,11 +560,22 @@ app.post('/api/game/quiz', async (req: Request, res: Response) => {
 // Structured Triage Evaluation Endpoint
 app.post('/api/triage', async (req: Request, res: Response) => {
   try {
-    const { symptoms, pregnancyStatus, gestationWeeks, postpartumDays, vitals, language } = req.body;
+    const {
+      symptoms,
+      pregnancyStatus,
+      gestationWeeks,
+      postpartumDays,
+      vitals,
+      language,
+      climateRisks = [],
+      ibibioMode = false,
+    } = req.body;
 
     const triagePrompt = `
-Evaluate the following clinical symptom case strictly according to WHO and emergency maternal/neonatal triage protocols:
+Evaluate the following clinical symptom case strictly according to WHO, FMOH, and the MamaG Climate-Induced Health Threats Extension (Rule Set A: Heat Stress & Gestational HTN >= 140/90 mmHg; Rule Set B: Vector-Borne Malaria in Pregnancy; Post-Flood Water-Borne Risks):
 - Reported Symptoms: ${JSON.stringify(symptoms)}
+- Environmental Climate Risk Factors Active: ${Array.isArray(climateRisks) && climateRisks.length > 0 ? climateRisks.join(', ') : 'None flagged'}
+- Ibibio / Ibeno Linguistic Mode: ${ibibioMode ? 'Yes (include relevant Ibibio clinical check phrases where appropriate)' : 'No'}
 - Pregnancy Status: ${pregnancyStatus || 'Unknown'}
 - Gestational Age: ${gestationWeeks ? `${gestationWeeks} weeks` : 'N/A'}
 - Postpartum: ${postpartumDays ? `${postpartumDays} days postpartum` : 'N/A'}

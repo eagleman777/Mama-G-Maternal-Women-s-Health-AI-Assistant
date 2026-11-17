@@ -32,6 +32,8 @@ import { PwaProvider, usePwa } from './context/PwaContext';
 import { CryptoProvider, useCrypto } from './context/CryptoContext';
 import { SupportedLanguage, UserContext } from './types';
 import { Eye, ShieldCheck, CheckCircle2, Share2 } from 'lucide-react';
+import { getOrCreateDeviceId } from './data/edgeSqliteStore';
+import { useNetworkSync } from './utils/useNetworkSync';
 
 function AppContent() {
   const [selectedPersona, setSelectedPersona] = useState<PersonaType | null>(() => {
@@ -71,6 +73,7 @@ function AppContent() {
     installApp,
   } = usePwa();
   const { receipts } = useCrypto();
+  useNetworkSync('', getOrCreateDeviceId(), isSimulatedOffline);
 
   const [userContext, setUserContext] = useState<UserContext>({
     role: 'mother',
