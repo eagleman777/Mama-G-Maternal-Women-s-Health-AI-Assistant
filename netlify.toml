@@ -1,0 +1,26 @@
+# Mama-G Netlify Deployment Configuration
+# Configure secrets (INFOBIP_BASE_URL, INFOBIP_API_KEY, INFOBIP_SMS_FROM,
+# INFOBIP_TEST_TO, MIDWIFE_ONCALL_UYO, MIDWIFE_ONCALL_IBENO, MIDWIFE_ONCALL_MBO,
+# ALERT_DRY_RUN) in Netlify Site Settings > Environment Variables.
+# Never commit real API keys or phone secrets into this file.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Route Level 1 Infobip SMS alerts to the Netlify serverless function before SPA fallback
+[[redirects]]
+  from = "/api/v1/alerts/infobip-dispatch"
+  to = "/.netlify/functions/infobip-dispatch"
+  status = 200
+  force = true
+
+# SPA client-side routing catch-all
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

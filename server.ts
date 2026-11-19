@@ -3,10 +3,33 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GoogleGenAI, Type, Modality } from '@google/genai';
 import dotenv from 'dotenv';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { formatLevel1Sms, normalizeClimateRiskKey } from './src/i18n/smsTemplates';
 
-dotenv.config();
+// BOM-safe startup environment loader: loads .env.infobip and .env without
+// overriding existing OS / Docker environment variables.
+function loadEnvFileBomSafe(filepath: string): boolean {
+  if (!fs.existsSync(filepath)) return false;
+  try {
+    const raw = fs.readFileSync(filepath, 'utf8').replace(/^\uFEFF/, '');
+    const parsed = dotenv.parse(raw);
+    for (const [k, v] of Object.entries(parsed)) {
+      if (process.env[k] === undefined) {
+        process.env[k] = v;
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn(`[MamaGHub] Could not read ${filepath}:`, err);
+    return false;
+  }
+}
+
+const loadedEnvFiles: string[] = [];
+if (loadEnvFileBomSafe('.env.infobip')) loadedEnvFiles.push('.env.infobip');
+if (loadEnvFileBomSafe('.env')) loadedEnvFiles.push('.env');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -142,6 +165,7 @@ const hubSyncedEncounters = new Map<string, Record<string, any>>();
 function ingestEncounterBatchIdempotent(deviceId: string, encounters: any[]) {
   let syncedCount = 0;
   let duplicateCount = 0;
+  const level1Triggered: any[] = [];
 
   for (const enc of encounters) {
     const encId = enc?.encounter_id;
@@ -149,15 +173,19 @@ function ingestEncounterBatchIdempotent(deviceId: string, encounters: any[]) {
       duplicateCount += 1;
       continue;
     }
-    hubSyncedEncounters.set(encId, {
+    const stored = {
       ...enc,
       device_id: enc.device_id || deviceId,
       received_at: new Date().toISOString(),
-    });
+    };
+    hubSyncedEncounters.set(encId, stored);
     syncedCount += 1;
+    if (Number(enc.severity_triggered) === 1) {
+      level1Triggered.push(stored);
+    }
   }
 
-  return { syncedCount, duplicateCount };
+  return { syncedCount, duplicateCount, level1Triggered };
 }
 
 // Health checks
@@ -172,6 +200,191 @@ app.get('/api/v1/health', (req: Request, res: Response) => {
     fleetCount: hubTabletFleet.size,
     centralEncountersCount: hubSyncedEncounters.size,
   });
+});
+
+// Live Akwa Ibom Climate Risk Telemetry (Open-Meteo real-time meteorological feed + 5m cache)
+const AKWA_IBOM_LGA_COORDS: Record<
+  string,
+  { name: string; lat: number; lon: number; coastal: boolean }
+> = {
+  ibeno: { name: 'Ibeno', lat: 4.5687, lon: 7.9764, coastal: true },
+  uyo: { name: 'Uyo', lat: 5.0377, lon: 7.9128, coastal: false },
+  mbo: { name: 'Mbo', lat: 4.6483, lon: 8.2392, coastal: true },
+  eket: { name: 'Eket', lat: 4.6423, lon: 7.9244, coastal: true },
+  'ikot ekpene': { name: 'Ikot Ekpene', lat: 5.1819, lon: 7.7148, coastal: false },
+  oron: { name: 'Oron', lat: 4.8217, lon: 8.235, coastal: true },
+};
+
+function decodeWmoWeatherCode(code: number): string {
+  if (code === 0) return 'Clear sky';
+  if (code === 1) return 'Mainly clear';
+  if (code === 2) return 'Partly cloudy';
+  if (code === 3) return 'Overcast';
+  if (code === 45 || code === 48) return 'Coastal fog / mist';
+  if (code >= 51 && code <= 57) return 'Drizzle';
+  if (code >= 61 && code <= 65) return code === 65 ? 'Heavy rain' : 'Rain showers';
+  if (code >= 66 && code <= 67) return 'Freezing rain';
+  if (code >= 80 && code <= 82) return code === 82 ? 'Violent rain showers' : 'Rain showers';
+  if (code >= 95 && code <= 99) return 'Thunderstorm';
+  return 'Humid tropical sky';
+}
+
+const liveClimateCache = new Map<string, { fetchedAt: number; payload: any }>();
+const CLIMATE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+app.get('/api/climate-risks', async (req: Request, res: Response) => {
+  try {
+    const rawLga = typeof req.query.lga === 'string' ? req.query.lga.trim() : '';
+    const rawLat = typeof req.query.lat === 'string' ? Number(req.query.lat) : NaN;
+    const rawLon = typeof req.query.lon === 'string' ? Number(req.query.lon) : NaN;
+    const rawLabel = typeof req.query.label === 'string' ? req.query.label.trim() : '';
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+
+    let targetName = 'Uyo';
+    let lat = 5.0377;
+    let lon = 7.9128;
+    let coastal = false;
+
+    if (Number.isFinite(rawLat) && Number.isFinite(rawLon) && Math.abs(rawLat) <= 90 && Math.abs(rawLon) <= 180) {
+      lat = Number(rawLat.toFixed(4));
+      lon = Number(rawLon.toFixed(4));
+      targetName = rawLabel || `GPS (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`;
+      coastal = lat < 4.85 && lon > 7.7 && lon < 8.4;
+    } else {
+      const normalizedKey = rawLga.toLowerCase();
+      const matched =
+        AKWA_IBOM_LGA_COORDS[normalizedKey] ||
+        Object.values(AKWA_IBOM_LGA_COORDS).find((c) => normalizedKey.includes(c.name.toLowerCase())) ||
+        AKWA_IBOM_LGA_COORDS.uyo;
+      targetName = matched.name;
+      lat = matched.lat;
+      lon = matched.lon;
+      coastal = matched.coastal;
+    }
+
+    const cacheKey = `${targetName.toLowerCase()}:${lat}:${lon}`;
+    const cached = liveClimateCache.get(cacheKey);
+    if (!forceRefresh && cached && Date.now() - cached.fetchedAt < CLIMATE_CACHE_TTL_MS) {
+      return res.json({
+        ...cached.payload,
+        cacheHit: true,
+      });
+    }
+
+    const meteoUrl =
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m` +
+      `&daily=precipitation_sum,temperature_2m_max&past_days=3&forecast_days=1&timezone=Africa%2FLagos`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6500);
+
+    let data: any;
+    try {
+      const response = await fetch(meteoUrl, { signal: controller.signal });
+      if (!response.ok) {
+        throw new Error(`Open-Meteo returned HTTP ${response.status}`);
+      }
+      data = await response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const current = data?.current || {};
+    const dailyPrecip: number[] = Array.isArray(data?.daily?.precipitation_sum)
+      ? data.daily.precipitation_sum.map((n: any) => Number(n) || 0)
+      : [];
+    const dailyMaxTemp: number[] = Array.isArray(data?.daily?.temperature_2m_max)
+      ? data.daily.temperature_2m_max.map((n: any) => Number(n) || 0)
+      : [];
+
+    const tempC = Number(current.temperature_2m ?? 30);
+    const heatIndexC = Number(current.apparent_temperature ?? tempC + 2);
+    const humidityPct = Number(current.relative_humidity_2m ?? 75);
+    const currentPrecipMm = Number(current.precipitation ?? current.rain ?? 0);
+    const windKmh = Number(current.wind_speed_10m ?? 0);
+    const weatherCode = Number(current.weather_code ?? 2);
+    const todayMaxTempC = dailyMaxTemp.length > 0 ? dailyMaxTemp[dailyMaxTemp.length - 1] : tempC;
+    const rain24hMm = Number(
+      (dailyPrecip.length > 0 ? dailyPrecip[dailyPrecip.length - 1] : currentPrecipMm).toFixed(1)
+    );
+    const rain72hMm = Number(
+      dailyPrecip
+        .slice(-3)
+        .reduce((acc, val) => acc + val, 0)
+        .toFixed(1)
+    );
+
+    const heatActive = heatIndexC >= 32 || (tempC >= 31 && humidityPct >= 70) || todayMaxTempC >= 33;
+    const mosquitoActive =
+      rain72hMm >= 10 || (humidityPct >= 75 && tempC >= 22 && tempC <= 34) || currentPrecipMm > 0;
+    const floodThreshold72h = coastal ? 35 : 50;
+    const floodActive = rain24hMm >= 25 || rain72hMm >= floodThreshold72h;
+
+    const activeFlags: string[] = [];
+    if (heatActive) activeFlags.push('extreme_ambient_heat');
+    if (mosquitoActive) activeFlags.push('peak_mosquito_vector_season');
+    if (floodActive) activeFlags.push('post_flood_water_contamination');
+
+    const payload = {
+      lga: targetName,
+      coastal,
+      coordinates: { lat, lon },
+      source: 'live-open-meteo',
+      timezone: data?.timezone || 'Africa/Lagos',
+      observedAt: current.time || new Date().toISOString(),
+      fetchedAt: new Date().toISOString(),
+      cacheHit: false,
+      metrics: {
+        tempC: Number(tempC.toFixed(1)),
+        heatIndexC: Number(heatIndexC.toFixed(1)),
+        todayMaxTempC: Number(todayMaxTempC.toFixed(1)),
+        humidityPct: Math.round(humidityPct),
+        currentPrecipMm: Number(currentPrecipMm.toFixed(1)),
+        rain24hMm,
+        rain72hMm,
+        windKmh: Number(windKmh.toFixed(1)),
+        weatherCode,
+        conditionLabel: decodeWmoWeatherCode(weatherCode),
+      },
+      activeFlags,
+      flagEvidence: {
+        extreme_ambient_heat: {
+          active: heatActive,
+          level: heatIndexC >= 36 ? 'HIGH' : heatActive ? 'MODERATE' : 'LOW',
+          metricSummary: `Heat Index ${heatIndexC.toFixed(1)}°C · ${tempC.toFixed(1)}°C / ${Math.round(humidityPct)}% RH`,
+          reason: heatActive
+            ? `Apparent heat (${heatIndexC.toFixed(1)}°C, daily high ${todayMaxTempC.toFixed(1)}°C) crosses maternal thermal-stress threshold (>=32°C).`
+            : `Heat index (${heatIndexC.toFixed(1)}°C) is currently below the 32°C maternal heat-stress threshold.`,
+        },
+        peak_mosquito_vector_season: {
+          active: mosquitoActive,
+          level: rain72hMm >= 20 && humidityPct >= 75 ? 'HIGH' : mosquitoActive ? 'MODERATE' : 'LOW',
+          metricSummary: `${Math.round(humidityPct)}% RH · 72h Rain ${rain72hMm} mm`,
+          reason: mosquitoActive
+            ? `Warm humidity (${Math.round(humidityPct)}% RH at ${tempC.toFixed(1)}°C) and ${rain72hMm} mm recent rainfall sustain active Anopheles vector breeding.`
+            : `Humidity (${Math.round(humidityPct)}%) and 72h rainfall (${rain72hMm} mm) indicate lower standing-water vector density.`,
+        },
+        post_flood_water_contamination: {
+          active: floodActive,
+          level: rain24hMm >= 40 || rain72hMm >= 75 ? 'HIGH' : floodActive ? 'MODERATE' : 'LOW',
+          metricSummary: `24h Rain ${rain24hMm} mm · 72h Rain ${rain72hMm} mm`,
+          reason: floodActive
+            ? `Heavy rainfall (${rain24hMm} mm/24h, ${rain72hMm} mm/72h) exceeds ${coastal ? 'coastal' : 'inland'} borehole inundation threshold (>=${floodThreshold72h} mm/72h).`
+            : `Recent rainfall (${rain24hMm} mm/24h, ${rain72hMm} mm/72h) is below the ${floodThreshold72h} mm water-contamination threshold.`,
+        },
+      },
+    };
+
+    liveClimateCache.set(cacheKey, { fetchedAt: Date.now(), payload });
+    return res.json(payload);
+  } catch (err: any) {
+    console.error('Live climate risks fetch failed:', err?.message || err);
+    return res.status(503).json({
+      error: 'Live meteorological feed temporarily unavailable. Use cached offline climate rules.',
+      source: 'offline-fallback',
+    });
+  }
 });
 
 // Regional Hub Telemetry Ingestion
@@ -195,17 +408,47 @@ app.post('/api/v1/telemetry', (req: Request, res: Response) => {
 });
 
 // Regional Hub Idempotent Encounter Batch Sync
-app.post('/api/v1/encounters/sync', (req: Request, res: Response) => {
+app.post('/api/v1/encounters/sync', async (req: Request, res: Response) => {
   try {
     const { device_id = 'TAB-EDGE', encounters = [] } = req.body || {};
     const list = Array.isArray(encounters) ? encounters : [];
-    const { syncedCount, duplicateCount } = ingestEncounterBatchIdempotent(device_id, list);
+    const { syncedCount, duplicateCount, level1Triggered } = ingestEncounterBatchIdempotent(
+      device_id,
+      list
+    );
+
+    let emergencyAlertsDispatched = 0;
+    let emergencyAlertsFailed = 0;
+    for (const l1 of level1Triggered) {
+      try {
+        const alertRec = await dispatchEmergencyAlertInternal({
+          encounterId: l1.encounter_id,
+          deviceId: l1.device_id || device_id,
+          lga: l1.location_lga || 'Uyo',
+          languageCode: l1.language_code || 'en',
+          severityLevel: 1,
+          climateRisk: l1.climate_risk_flagged || 'obstetric_red_flag',
+          summary: `${l1.climate_risk_flagged || 'obstetric_red_flag'}: ${l1.action_taken || 'Emergency triage triggered'}`,
+        });
+        if (alertRec.status !== 'failed') {
+          emergencyAlertsDispatched += 1;
+        } else {
+          emergencyAlertsFailed += 1;
+        }
+      } catch (alertErr) {
+        emergencyAlertsFailed += 1;
+        console.error(`[MamaGHub] Non-fatal Infobip dispatch error for ${l1.encounter_id}:`, alertErr);
+      }
+    }
 
     res.json({
       status: 'success',
       device_id,
       synced_count: syncedCount,
       duplicate_count: duplicateCount,
+      emergency_alerts_dispatched: emergencyAlertsDispatched,
+      emergency_alerts_failed: emergencyAlertsFailed,
+      alert_provider: 'infobip',
       total_hub_encounters: hubSyncedEncounters.size,
       syncedAt: new Date().toISOString(),
     });
@@ -244,11 +487,38 @@ app.post('/api/v1/ota/audit', (req: Request, res: Response) => {
 });
 
 // Edge Field Tablet SQLite Regional Hub Sync (legacy/unified bridge)
-app.post('/api/edge-sync', (req: Request, res: Response) => {
+app.post('/api/edge-sync', async (req: Request, res: Response) => {
   try {
     const { deviceId = 'TAB-EDGE', lga = 'Uyo', pendingEncounters = [] } = req.body || {};
     const list = Array.isArray(pendingEncounters) ? pendingEncounters : [];
-    const { syncedCount, duplicateCount } = ingestEncounterBatchIdempotent(deviceId, list);
+    const { syncedCount, duplicateCount, level1Triggered } = ingestEncounterBatchIdempotent(
+      deviceId,
+      list
+    );
+
+    let emergencyAlertsDispatched = 0;
+    let emergencyAlertsFailed = 0;
+    for (const l1 of level1Triggered) {
+      try {
+        const alertRec = await dispatchEmergencyAlertInternal({
+          encounterId: l1.encounter_id,
+          deviceId: l1.device_id || deviceId,
+          lga: l1.location_lga || lga,
+          languageCode: l1.language_code || 'en',
+          severityLevel: 1,
+          climateRisk: l1.climate_risk_flagged || 'obstetric_red_flag',
+          summary: `${l1.climate_risk_flagged || 'obstetric_red_flag'}: ${l1.action_taken || 'Emergency triage triggered'}`,
+        });
+        if (alertRec.status !== 'failed') {
+          emergencyAlertsDispatched += 1;
+        } else {
+          emergencyAlertsFailed += 1;
+        }
+      } catch (alertErr) {
+        emergencyAlertsFailed += 1;
+        console.error(`[MamaGHub] Non-fatal Infobip dispatch error for ${l1.encounter_id}:`, alertErr);
+      }
+    }
 
     res.json({
       status: 'ok',
@@ -256,12 +526,401 @@ app.post('/api/edge-sync', (req: Request, res: Response) => {
       lga,
       uploadedCount: syncedCount,
       duplicateCount,
+      emergencyAlertsDispatched,
+      emergencyAlertsFailed,
+      alertProvider: 'infobip',
       updatedRules: [],
       syncedAt: new Date().toISOString(),
     });
   } catch (err: any) {
     res.status(500).json({ error: 'Edge sync failed', details: err?.message || String(err) });
   }
+});
+
+// ============================================================================
+// Field Uptime Probe & Infobip Emergency Midwife Escalation SLA Routes
+// ============================================================================
+interface MidwifeAlertRecord {
+  alertId: string;
+  encounterId: string;
+  deviceId: string;
+  lga: string;
+  stationId: string;
+  stationName: string;
+  midwifeRole: string;
+  channel: 'sms';
+  languageCode: 'en' | 'ibb' | 'ibn';
+  severityLevel: 1 | 2;
+  summary: string;
+  provider: 'infobip';
+  mode: 'infobip_live' | 'dry_run' | 'sandbox_verification';
+  messageId: string | null;
+  status: 'dispatched_awaiting_ack' | 'acknowledged' | 'failed';
+  dispatchedAt: string;
+  dispatchedEpochMs: number;
+  dispatchLatencyMs: number;
+  acknowledgedAt: string | null;
+  ackLatencyMs: number | null;
+  ackBy: string | null;
+  errorDetail: string | null;
+}
+
+const hubEmergencyAlerts: MidwifeAlertRecord[] = [];
+
+const REGIONAL_MIDWIFE_STATIONS = [
+  {
+    stationId: 'MW-UYO-01',
+    lga: 'Uyo',
+    stationName: 'Uyo Tertiary Obstetric Hub · Duty Desk',
+    midwifeRole: 'Senior On-Call Midwife (State Referral)',
+    envKey: 'MIDWIFE_ONCALL_UYO',
+    slaTargetSec: 45,
+  },
+  {
+    stationId: 'MW-IBENO-02',
+    lga: 'Ibeno',
+    stationName: 'Ibeno Coastal PHC · Emergency Desk',
+    midwifeRole: 'On-Call Community Midwife Lead',
+    envKey: 'MIDWIFE_ONCALL_IBENO',
+    slaTargetSec: 60,
+  },
+  {
+    stationId: 'MW-MBO-03',
+    lga: 'Mbo',
+    stationName: 'Mbo General Outpost · Maternal Triage',
+    midwifeRole: 'On-Call Obstetric Nurse-Midwife',
+    envKey: 'MIDWIFE_ONCALL_MBO',
+    slaTargetSec: 60,
+  },
+];
+
+function normalizeInfobipBaseUrl(raw?: string): string {
+  if (!raw) return '';
+  return raw
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+    .split('/')[0]
+    .trim();
+}
+
+function isPlaceholderInfobipValue(val?: string): boolean {
+  if (!val) return true;
+  const trimmed = val.trim().toLowerCase();
+  return (
+    !trimmed ||
+    (trimmed.includes('<') && trimmed.includes('>')) ||
+    trimmed.includes('your-subdomain') ||
+    trimmed.includes('your-infobip') ||
+    trimmed.includes('your_infobip') ||
+    trimmed.includes('registered-phone') ||
+    trimmed.includes('verified-test-recipient') ||
+    trimmed.includes('xxxxx') ||
+    trimmed.includes('replace_with') ||
+    trimmed.startsWith('my_') ||
+    trimmed === 'changeme' ||
+    trimmed === 'placeholder'
+  );
+}
+
+function normalizeInfobipDestination(raw?: string): string {
+  if (!raw || isPlaceholderInfobipValue(raw)) return '';
+  return raw.replace(/\D+/g, '');
+}
+
+function normalizeInfobipSender(raw?: string, fallback = 'ServiceSMS'): string {
+  if (!raw || isPlaceholderInfobipValue(raw)) return fallback;
+  const trimmed = raw.trim();
+  if (/^[\d\s+\-()]+$/.test(trimmed)) {
+    return trimmed.replace(/\D+/g, '') || fallback;
+  }
+  return trimmed;
+}
+
+function parseBoolEnv(raw?: string, fallback = false): boolean {
+  if (!raw || !raw.trim()) return fallback;
+  const v = raw.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on'].includes(v)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(v)) return false;
+  return fallback;
+}
+
+function maskApiKey(val?: string): string {
+  if (!val || !val.trim()) return '<not set>';
+  const trimmed = val.trim();
+  if (isPlaceholderInfobipValue(trimmed)) return '<placeholder>';
+  if (trimmed.length <= 8) return '****';
+  return `${trimmed.slice(0, 3)}****${trimmed.slice(-4)}`;
+}
+
+function getInfobipRuntimeConfig() {
+  const baseUrl = normalizeInfobipBaseUrl(process.env.INFOBIP_BASE_URL);
+  const apiKey = (process.env.INFOBIP_API_KEY || '').trim();
+  const smsFrom = normalizeInfobipSender(process.env.INFOBIP_SMS_FROM, 'ServiceSMS');
+  const testTo = normalizeInfobipDestination(process.env.INFOBIP_TEST_TO);
+  const dryRun = parseBoolEnv(process.env.ALERT_DRY_RUN, false);
+  const liveConfigured = !isPlaceholderInfobipValue(baseUrl) && !isPlaceholderInfobipValue(apiKey);
+  return {
+    hubUrl: (process.env.MAMAG_HUB_URL || 'https://hub.mamag-health.org').trim(),
+    edgeRepo: (process.env.MAMAG_EDGE_REPO || 'https://github.com/mamag/edge-node').trim(),
+    baseUrl,
+    apiKey,
+    smsFrom,
+    testTo,
+    dryRun,
+    liveConfigured,
+  };
+}
+
+// Log masked Infobip startup configuration cleanly on boot
+(() => {
+  const cfg = getInfobipRuntimeConfig();
+  const uyoSet = Boolean(normalizeInfobipDestination(process.env.MIDWIFE_ONCALL_UYO));
+  const ibenoSet = Boolean(normalizeInfobipDestination(process.env.MIDWIFE_ONCALL_IBENO));
+  const mboSet = Boolean(normalizeInfobipDestination(process.env.MIDWIFE_ONCALL_MBO));
+  console.log(
+    `[MamaGHub] Startup Infobip Env | Hub=${cfg.hubUrl} | EnvFiles=${loadedEnvFiles.join(',') || 'os.environ'} | ` +
+      `INFOBIP_BASE_URL=${cfg.baseUrl || '<not set>'} | INFOBIP_API_KEY=${maskApiKey(cfg.apiKey)} | ` +
+      `INFOBIP_SMS_FROM=${cfg.smsFrom} | INFOBIP_TEST_TO=${cfg.testTo || '<not set>'} | ` +
+      `Midwives(Uyo=${uyoSet},Ibeno=${ibenoSet},Mbo=${mboSet}) | ALERT_DRY_RUN=${cfg.dryRun}`
+  );
+  if (!cfg.liveConfigured) {
+    console.warn(
+      '[MamaGHub] Infobip live credentials not configured (INFOBIP_BASE_URL / INFOBIP_API_KEY). Running in safe sandbox/dry-run mode.'
+    );
+  }
+})();
+
+app.get('/api/v1/uptime/probe', (_req: Request, res: Response) => {
+  const mem = process.memoryUsage();
+  const cfg = getInfobipRuntimeConfig();
+  res.json({
+    status: 'healthy',
+    service: 'Mama-G Regional Hub',
+    hubUrl: cfg.hubUrl,
+    edgeRepo: cfg.edgeRepo,
+    alertProvider: 'infobip',
+    uptimeSeconds: Math.round(process.uptime()),
+    memoryRssMb: Math.round((mem.rss / 1024 / 1024) * 10) / 10,
+    fleetCount: hubTabletFleet.size,
+    centralEncountersCount: hubSyncedEncounters.size,
+    alertCount: hubEmergencyAlerts.length,
+    probedAt: new Date().toISOString(),
+  });
+});
+
+app.get('/api/v1/alerts/roster', (_req: Request, res: Response) => {
+  const cfg = getInfobipRuntimeConfig();
+
+  const stations = REGIONAL_MIDWIFE_STATIONS.map((s) => {
+    const normalizedNum = normalizeInfobipDestination(process.env[s.envKey]);
+    const maskedNumber =
+      normalizedNum.length > 5
+        ? `${normalizedNum.slice(0, 4)}****${normalizedNum.slice(-3)}`
+        : cfg.testTo
+        ? `${cfg.testTo.slice(0, 4)}****${cfg.testTo.slice(-3)} (Fallback)`
+        : 'Sandbox Duty Endpoint';
+    return {
+      stationId: s.stationId,
+      lga: s.lga,
+      stationName: s.stationName,
+      midwifeRole: s.midwifeRole,
+      slaTargetSec: s.slaTargetSec,
+      livePhoneConfigured: Boolean(normalizedNum || cfg.testTo),
+      maskedNumber,
+    };
+  });
+
+  res.json({
+    provider: 'infobip',
+    hubUrl: cfg.hubUrl,
+    edgeRepo: cfg.edgeRepo,
+    infobipLiveConfigured: cfg.liveConfigured && !cfg.dryRun,
+    infobipBaseUrlConfigured: !isPlaceholderInfobipValue(cfg.baseUrl),
+    smsSender: cfg.smsFrom,
+    alertDryRun: cfg.dryRun,
+    stations,
+    recentAlerts: hubEmergencyAlerts.slice(0, 25),
+  });
+});
+
+const DIALECT_CUES: Record<'en' | 'ibb' | 'ibn', string> = {
+  en: 'EN · Immediate midwife escalation required',
+  ibb: 'IBB (Ibibio) · Ufan̄ mbọm mme eka: Nyene un̄wam idahaemi',
+  ibn: 'IBN (Ibeno) · Obio Ibeno mbọm eka: Koot midwife idahaemi',
+};
+
+async function dispatchEmergencyAlertInternal(params: {
+  encounterId?: string;
+  deviceId?: string;
+  lga?: string;
+  stationId?: string;
+  languageCode?: string;
+  locale?: string;
+  climateRisk?: string;
+  risk?: string;
+  severityLevel?: number;
+  summary?: string;
+  text?: string;
+  to?: string;
+}): Promise<MidwifeAlertRecord & { to?: string | null; text?: string }> {
+  const start = performance.now();
+  const {
+    encounterId = `ENC-DRILL-${Date.now().toString(36).toUpperCase()}`,
+    deviceId = 'TAB-EDGE-01',
+    lga = 'Ibeno',
+    stationId,
+    languageCode,
+    locale,
+    climateRisk,
+    risk,
+    severityLevel = 1,
+    summary,
+    text,
+    to,
+  } = params;
+
+  const resolvedLang = languageCode || locale || 'en';
+  const resolvedRisk = climateRisk || risk;
+  const resolvedSummary =
+    (typeof summary === 'string' && summary.trim()) ||
+    (typeof text === 'string' && text.trim()) ||
+    'Level 1 Obstetric Emergency Escalation';
+
+  const langKey = (['en', 'ibb', 'ibn'].includes(String(resolvedLang).toLowerCase())
+    ? String(resolvedLang).toLowerCase()
+    : 'en') as 'en' | 'ibb' | 'ibn';
+
+  const station =
+    REGIONAL_MIDWIFE_STATIONS.find((s) => s.stationId === stationId) ||
+    REGIONAL_MIDWIFE_STATIONS.find((s) => s.lga.toLowerCase() === String(lga).toLowerCase()) ||
+    REGIONAL_MIDWIFE_STATIONS[0];
+
+  const cfg = getInfobipRuntimeConfig();
+  const targetNormalized =
+    normalizeInfobipDestination(to) ||
+    normalizeInfobipDestination(process.env[station.envKey]) ||
+    normalizeInfobipDestination(process.env.MIDWIFE_ONCALL_UYO) ||
+    cfg.testTo;
+
+  const messageBody =
+    typeof text === 'string' && text.trim()
+      ? text.trim()
+      : formatLevel1Sms({
+          lga: station.lga.toUpperCase(),
+          locale: langKey,
+          risk: normalizeClimateRiskKey(resolvedRisk),
+          encounterId,
+        });
+
+  let mode: MidwifeAlertRecord['mode'] = cfg.dryRun ? 'dry_run' : 'sandbox_verification';
+  let messageId: string | null = null;
+  let status: MidwifeAlertRecord['status'] = 'dispatched_awaiting_ack';
+  let errorDetail: string | null = null;
+
+  if (cfg.dryRun) {
+    console.log(
+      `[MamaGHub] [INFOBIP DRY-RUN] Endpoint=https://${cfg.baseUrl || '<unconfigured>'}/sms/2/text/advanced | ` +
+        `From=${cfg.smsFrom} | To=${targetNormalized || '<none>'} | Text=${messageBody}`
+    );
+  } else if (cfg.liveConfigured && targetNormalized) {
+    mode = 'infobip_live';
+    const endpoint = `https://${cfg.baseUrl}/sms/2/text/advanced`;
+    const payload = {
+      messages: [
+        {
+          destinations: [{ to: targetNormalized }],
+          from: cfg.smsFrom,
+          text: messageBody,
+        },
+      ],
+    };
+
+    try {
+      const infobipResp = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `App ${cfg.apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8000),
+      });
+      const infobipData = await infobipResp.json().catch(() => ({}));
+      const firstMessage = Array.isArray(infobipData?.messages) ? infobipData.messages[0] : null;
+      if (infobipResp.ok && firstMessage?.messageId) {
+        messageId = firstMessage.messageId;
+      } else {
+        status = 'failed';
+        errorDetail =
+          infobipData?.requestError?.serviceException?.text ||
+          `Infobip HTTP ${infobipResp.status}`;
+      }
+    } catch (fetchErr: any) {
+      status = 'failed';
+      errorDetail = fetchErr?.message || 'Infobip HTTP request failed or timed out';
+    }
+  }
+
+  const dispatchLatencyMs = Math.max(1, Math.round(performance.now() - start));
+  const nowEpoch = Date.now();
+  const record: MidwifeAlertRecord & { to?: string | null; text?: string } = {
+    alertId: `ALT-${nowEpoch.toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`,
+    encounterId,
+    deviceId,
+    lga: station.lga,
+    stationId: station.stationId,
+    stationName: station.stationName,
+    midwifeRole: station.midwifeRole,
+    channel: 'sms',
+    languageCode: langKey,
+    severityLevel: severityLevel === 2 ? 2 : 1,
+    summary: String(resolvedSummary).slice(0, 220),
+    provider: 'infobip',
+    mode,
+    messageId,
+    status,
+    dispatchedAt: new Date(nowEpoch).toISOString(),
+    dispatchedEpochMs: nowEpoch,
+    dispatchLatencyMs,
+    acknowledgedAt: null,
+    ackLatencyMs: null,
+    ackBy: null,
+    errorDetail,
+    to: targetNormalized || null,
+    text: messageBody,
+  };
+
+  hubEmergencyAlerts.unshift(record);
+  if (hubEmergencyAlerts.length > 50) hubEmergencyAlerts.length = 50;
+  return record;
+}
+
+app.post('/api/v1/alerts/infobip-dispatch', async (req: Request, res: Response) => {
+  try {
+    const record = await dispatchEmergencyAlertInternal(req.body || {});
+    res.status(record.status === 'failed' ? 502 : 200).json(record);
+  } catch (err: any) {
+    res.status(500).json({ error: 'Infobip emergency dispatch failed', details: err?.message || String(err) });
+  }
+});
+
+app.post('/api/v1/alerts/midwife-ack', (req: Request, res: Response) => {
+  const { alertId, ackBy = 'On-Call Midwife Duty Desk' } = req.body || {};
+  const record = hubEmergencyAlerts.find((a) => a.alertId === alertId);
+  if (!record) {
+    res.status(404).json({ error: 'Alert ID not found on Regional Hub' });
+    return;
+  }
+
+  const nowEpoch = Date.now();
+  record.status = 'acknowledged';
+  record.acknowledgedAt = new Date(nowEpoch).toISOString();
+  record.ackLatencyMs = Math.max(1, nowEpoch - record.dispatchedEpochMs);
+  record.ackBy = String(ackBy).slice(0, 80);
+
+  res.json(record);
 });
 
 // G-Corner: Old Mama's Faith & Life Mentoring for Young Women
@@ -568,13 +1227,19 @@ app.post('/api/triage', async (req: Request, res: Response) => {
       vitals,
       language,
       climateRisks = [],
+      liveClimateTelemetry,
       ibibioMode = false,
     } = req.body;
+
+    const liveClimateLine = liveClimateTelemetry
+      ? `- Live Meteorological Telemetry (${liveClimateTelemetry.lga || 'Akwa Ibom'} · ${liveClimateTelemetry.source || 'live'}): Temp ${liveClimateTelemetry.tempC}°C (Heat Index ${liveClimateTelemetry.heatIndexC}°C), Humidity ${liveClimateTelemetry.humidityPct}%, Rainfall 24h ${liveClimateTelemetry.rain24hMm}mm / 72h ${liveClimateTelemetry.rain72hMm}mm, Condition: ${liveClimateTelemetry.conditionLabel || 'N/A'}`
+      : '- Live Meteorological Telemetry: Offline pre-seeded rule pack active';
 
     const triagePrompt = `
 Evaluate the following clinical symptom case strictly according to WHO, FMOH, and the MamaG Climate-Induced Health Threats Extension (Rule Set A: Heat Stress & Gestational HTN >= 140/90 mmHg; Rule Set B: Vector-Borne Malaria in Pregnancy; Post-Flood Water-Borne Risks):
 - Reported Symptoms: ${JSON.stringify(symptoms)}
 - Environmental Climate Risk Factors Active: ${Array.isArray(climateRisks) && climateRisks.length > 0 ? climateRisks.join(', ') : 'None flagged'}
+${liveClimateLine}
 - Ibibio / Ibeno Linguistic Mode: ${ibibioMode ? 'Yes (include relevant Ibibio clinical check phrases where appropriate)' : 'No'}
 - Pregnancy Status: ${pregnancyStatus || 'Unknown'}
 - Gestational Age: ${gestationWeeks ? `${gestationWeeks} weeks` : 'N/A'}
@@ -679,23 +1344,55 @@ const VOICE_BY_LANGUAGE: Record<string, { voiceName: string; style: string }> = 
     voiceName: 'Kore',
     style: 'Iya agbebi oninure to n fi okan bale ati ife soro ni ede Yoruba to dan moran fun alaboyun',
   },
+  Ibibio: {
+    voiceName: 'Kore',
+    style:
+      'Native Akwa Ibom Ibibio-speaking community midwife (Uyai Akwa Ibom cadence). Speak slowly, warmly, and clearly with authentic Ibibio phonology: pure vowels (a=ah, e=eh, i=ee, o=oh, u=oo), open-mid ọ as "aw", central ụ as "uh/oo", velar nasal n̄/ñ as "-ng", co-articulated labial-velar kp, and natural Lower Cross tonal rhythm.',
+  },
+  ibb: {
+    voiceName: 'Kore',
+    style:
+      'Native Akwa Ibom Ibibio-speaking community midwife (Uyai Akwa Ibom cadence). Speak slowly, warmly, and clearly with authentic Ibibio phonology: pure vowels (a=ah, e=eh, i=ee, o=oh, u=oo), open-mid ọ as "aw", central ụ as "uh/oo", velar nasal n̄/ñ as "-ng", co-articulated labial-velar kp, and natural Lower Cross tonal rhythm.',
+  },
+  Ibeno: {
+    voiceName: 'Kore',
+    style:
+      'Soft, warm, gentle feminine female coastal Akwa Ibom Ibeno (Ibọnọ) midwife voice. Speak exclusively in a soothing, higher-register woman\'s voice (never deep or masculine) while preserving authentic coastal Ibeno (Ibọnọ) Lower Cross pronunciation: resonant open ọ as "aw", prenasalized mgb/gb and crisp kp stops, light tapped r, nasal n̄/ñ as "-ng", and clear melodic tonal cadence.',
+  },
+  ibn: {
+    voiceName: 'Kore',
+    style:
+      'Soft, warm, gentle feminine female coastal Akwa Ibom Ibeno (Ibọnọ) midwife voice. Speak exclusively in a soothing, higher-register woman\'s voice (never deep or masculine) while preserving authentic coastal Ibeno (Ibọnọ) Lower Cross pronunciation: resonant open ọ as "aw", prenasalized mgb/gb and crisp kp stops, light tapped r, nasal n̄/ñ as "-ng", and clear melodic tonal cadence.',
+  },
 };
 
 // Text-to-Speech Endpoint for Low-Literacy Mothers using gemini-3.8-flash-lite-tts
 app.post('/api/audio-tts', async (req: Request, res: Response) => {
   try {
-    const { text, language } = req.body;
+    const { text, language, phoneticGuide } = req.body;
     if (!text) {
       res.status(400).json({ error: 'Text is required for TTS' });
       return;
     }
 
+    const langKey = String(language || 'English');
     const selectedVoiceConfig =
-      VOICE_BY_LANGUAGE[language || 'English'] || VOICE_BY_LANGUAGE.English;
+      VOICE_BY_LANGUAGE[langKey] ||
+      VOICE_BY_LANGUAGE[langKey.toLowerCase()] ||
+      VOICE_BY_LANGUAGE.English;
+
+    // Prefer clean phonetic guide for Ibibio/Ibeno when provided so diacritics are pronounced naturally
+    const rawSpoken =
+      (langKey === 'Ibibio' || langKey === 'ibb' || langKey === 'Ibeno' || langKey === 'ibn') &&
+      typeof phoneticGuide === 'string' &&
+      phoneticGuide.trim().length > 0
+        ? phoneticGuide
+        : String(text);
 
     // Keep spoken text concise and focused for fast audio streaming
-    const cleanText = text
+    const cleanText = rawSpoken
       .replace(/[#*_`]/g, '')
+      .replace(/\s*\/\s*/g, ', ')
       .replace(/🚨|💬|📋|🏥|⚠️/g, '')
       .slice(0, 500);
 
@@ -743,11 +1440,16 @@ app.post('/api/audio-tts', async (req: Request, res: Response) => {
 // Vite middleware in dev or static files in production
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
+  const server = http.createServer(app);
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: process.env.DISABLE_HMR !== 'true',
+        ws: { server },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -758,10 +1460,18 @@ async function startServer() {
     });
   }
 
-  const server = http.createServer(app);
-
   // Gemini 3.8 Live API WebSocket Bridge for Real-Time Voice Conversations
-  const wss = new WebSocketServer({ server, path: '/live' });
+  // Use noServer + explicit path routing so Vite HMR upgrades on port 3000 are never aborted.
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (request, socket, head) => {
+    const pathname = new URL(request.url || '/', 'http://localhost').pathname;
+    if (pathname === '/live') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    }
+  });
 
   wss.on('connection', async (clientWs: WebSocket) => {
     console.log('[Live API] Client connected to Voice WebSocket');

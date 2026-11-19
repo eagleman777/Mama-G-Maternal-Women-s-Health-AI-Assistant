@@ -3,11 +3,13 @@ import {
   voicePronunciation,
   SupportedLanguage,
   PronunciationOptions,
+  PronunciationEngine,
 } from './mamagVoicePronunciation';
 
 export function useMamaGPronunciation() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [activeTerm, setActiveTerm] = useState<string | null>(null);
+  const [activeEngine, setActiveEngine] = useState<PronunciationEngine | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,7 +28,13 @@ export function useMamaGPronunciation() {
         setError(null);
         setIsPlaying(true);
         setActiveTerm(term);
-        await voicePronunciation.speak(term, lang, options);
+        await voicePronunciation.speak(term, lang, {
+          ...options,
+          onEngineResolved: (engine) => {
+            setActiveEngine(engine);
+            options?.onEngineResolved?.(engine);
+          },
+        });
       } catch (err: any) {
         console.error('Pronunciation playback failed:', err);
         setError(err?.message || 'Speech playback unavailable in this browser.');
@@ -49,6 +57,7 @@ export function useMamaGPronunciation() {
     stopPronunciation,
     isPlaying,
     activeTerm,
+    activeEngine,
     error,
     isSupported: voicePronunciation.isSupported(),
     getDialectLabel: (lang: SupportedLanguage = 'ibb') =>

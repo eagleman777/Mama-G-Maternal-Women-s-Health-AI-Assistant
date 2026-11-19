@@ -11,6 +11,7 @@ export interface ClimatePhraseMapping {
   concept: string;
   englishPrompt: string;
   ibibioEquivalent: string;
+  phoneticGuide?: string;
   gloss: string;
   riskFactor: ClimateRiskFactorId;
 }
@@ -58,6 +59,7 @@ export const IBIBIO_CLIMATE_LEXICON: ClimatePhraseMapping[] = [
     concept: 'Extreme Heat Stress',
     englishPrompt: 'Are you feeling dizzy from the severe heat?',
     ibibioEquivalent: 'Idem kpon̄ ut mama? / Ekeme ndikot udim ufan̄ obio usen emi?',
+    phoneticGuide: 'Ee-dehm kpawng oot mah-mah? · Eh-keh-meh n-dee-koht oo-deem oo-fahng oh-bee-oh oo-sehn eh-mee?',
     gloss: 'Body hot too much / dizzy from severe environmental heat?',
     riskFactor: 'extreme_ambient_heat',
   },
@@ -66,6 +68,7 @@ export const IBIBIO_CLIMATE_LEXICON: ClimatePhraseMapping[] = [
     concept: 'Sudden Swelling',
     englishPrompt: 'Do you have sudden swelling in your face or hands?',
     ibibioEquivalent: 'Idem usụhọ / Isọn̄ ke ubọk ye iso',
+    phoneticGuide: 'Ee-dehm oo-suh-haw · Ee-sawng keh oo-bawk yeh ee-soh',
     gloss: 'Sudden puffy swelling on your hands and face',
     riskFactor: 'extreme_ambient_heat',
   },
@@ -74,6 +77,7 @@ export const IBIBIO_CLIMATE_LEXICON: ClimatePhraseMapping[] = [
     concept: 'Vector Fever / Chills',
     englishPrompt: 'Are you having chills and fever from mosquito illness?',
     ibibioEquivalent: 'Utọdọn̄ / Usen ofụn̄ mîkpon̄',
+    phoneticGuide: 'Oo-taw-dawng · Oo-sehn oh-fuhng mee-kpawng',
     gloss: 'High body fever accompanied by shaking chills',
     riskFactor: 'peak_mosquito_vector_season',
   },
@@ -207,6 +211,109 @@ export async function getCachedClimateRules(): Promise<{
     rules: CLIMATE_TRIAGE_RULES,
     lexicon: IBIBIO_CLIMATE_LEXICON,
   };
+}
+
+export const AKWA_IBOM_CLIMATE_LGAS = [
+  'Ibeno',
+  'Uyo',
+  'Mbo',
+  'Eket',
+  'Ikot Ekpene',
+  'Oron',
+] as const;
+
+export type AkwaIbomClimateLga = (typeof AKWA_IBOM_CLIMATE_LGAS)[number];
+
+export interface LiveClimateFlagEvidence {
+  active: boolean;
+  level: 'HIGH' | 'MODERATE' | 'LOW';
+  metricSummary: string;
+  reason: string;
+}
+
+export interface LiveClimateRiskSnapshot {
+  lga: string;
+  coastal: boolean;
+  coordinates: { lat: number; lon: number };
+  source: 'live-open-meteo' | 'cached-live' | 'offline-fallback';
+  timezone: string;
+  observedAt: string;
+  fetchedAt: string;
+  cacheHit?: boolean;
+  metrics: {
+    tempC: number;
+    heatIndexC: number;
+    todayMaxTempC: number;
+    humidityPct: number;
+    currentPrecipMm: number;
+    rain24hMm: number;
+    rain72hMm: number;
+    windKmh: number;
+    weatherCode: number;
+    conditionLabel: string;
+  };
+  activeFlags: ClimateRiskFactorId[];
+  flagEvidence: Record<ClimateRiskFactorId, LiveClimateFlagEvidence>;
+}
+
+const LIVE_CLIMATE_CACHE_KEY = 'mama_g_live_climate_snapshot_v1';
+
+export function getCachedLiveClimateRisks(lga?: string): LiveClimateRiskSnapshot | null {
+  try {
+    const key = lga ? `${LIVE_CLIMATE_CACHE_KEY}:${lga.toLowerCase()}` : LIVE_CLIMATE_CACHE_KEY;
+    const raw = localStorage.getItem(key) || localStorage.getItem(LIVE_CLIMATE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LiveClimateRiskSnapshot;
+    if (!parsed?.metrics || !Array.isArray(parsed.activeFlags)) return null;
+    return { ...parsed, source: 'cached-live' };
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchLiveClimateRisks(params: {
+  lga?: string;
+  lat?: number;
+  lon?: number;
+  label?: string;
+  forceRefresh?: boolean;
+}): Promise<LiveClimateRiskSnapshot | null> {
+  const query = new URLSearchParams();
+  if (typeof params.lat === 'number' && typeof params.lon === 'number') {
+    query.set('lat', String(params.lat));
+    query.set('lon', String(params.lon));
+    if (params.label) query.set('label', params.label);
+  } else if (params.lga) {
+    query.set('lga', params.lga);
+  }
+  if (params.forceRefresh) {
+    query.set('refresh', '1');
+  }
+
+  try {
+    const res = await fetch(`/api/climate-risks?${query.toString()}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+    const data = (await res.json()) as LiveClimateRiskSnapshot;
+    if (!data?.metrics || !Array.isArray(data.activeFlags)) {
+      throw new Error('Malformed live climate payload');
+    }
+    try {
+      localStorage.setItem(LIVE_CLIMATE_CACHE_KEY, JSON.stringify(data));
+      if (data.lga) {
+        localStorage.setItem(
+          `${LIVE_CLIMATE_CACHE_KEY}:${data.lga.toLowerCase()}`,
+          JSON.stringify(data)
+        );
+      }
+    } catch {}
+    return data;
+  } catch {
+    return getCachedLiveClimateRisks(params.lga);
+  }
 }
 
 /**

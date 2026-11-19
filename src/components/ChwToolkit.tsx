@@ -17,6 +17,7 @@ import { CHW_PROTOCOLS } from '../data/clinicalKnowledge';
 import { EdgeSqliteSyncPanel } from './EdgeSqliteSyncPanel';
 import { MamaGOTAUpdatePanel } from './MamaGOTAUpdatePanel';
 import { MamaGSecurityVaultPanel } from './MamaGSecurityVaultPanel';
+import { MamaGFieldValidationPanel } from './MamaGFieldValidationPanel';
 import { getOrCreateDeviceId } from '../data/edgeSqliteStore';
 
 const DEPLOYMENT_MANUAL_PDF_PATH =
@@ -225,8 +226,9 @@ export const ChwToolkit: React.FC = () => {
         </div>
       </div>
 
-      {/* Edge Field Tablet SQLite Cache, OTA & Zero-Trust Secret Vault */}
+      {/* Edge Field Tablet SQLite Cache, OTA, SLA Validation & Zero-Trust Secret Vault */}
       <div className="no-print space-y-6">
+        <MamaGFieldValidationPanel />
         <EdgeSqliteSyncPanel />
         <MamaGOTAUpdatePanel deviceId={getOrCreateDeviceId()} hubApiUrl="" />
         <MamaGSecurityVaultPanel deviceId={getOrCreateDeviceId()} />
