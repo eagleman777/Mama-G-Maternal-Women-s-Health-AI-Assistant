@@ -5,7 +5,10 @@
 # Never commit real API keys or phone secrets into this file.
 
 [build]
-  command = "npm run build"
+  # Build from the repository root (overrides any stale UI base setting)
+  base = "."
+  # Install dependencies (incl. devDependencies) before building so vite is available
+  command = "npm install --include=dev --no-audit --no-fund && npm run build"
   publish = "dist"
   functions = "netlify/functions"
 
